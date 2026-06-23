@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# graphify ignore
+graphify-out/cache/
+graphify-out/manifest.json
+graphify-out/cost.json
