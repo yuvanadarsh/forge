@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { mockPipelines, mockAgents } from "@/lib/mock-data";
+import type { Pipeline } from "@/types";
+import EditPipelineModal from "@/components/EditPipelineModal";
 
 const STATUS_STYLES = {
   pending_approval: { label: "Pending Approval", color: "#f59e0b", bg: "#2a1a00" },
@@ -28,19 +30,26 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 export default function PipelinesPage() {
+  const [pipelines, setPipelines] = useState<Pipeline[]>(mockPipelines);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [editingPipeline, setEditingPipeline] = useState<Pipeline | null>(null);
+
+  function handleSavePipeline(updated: Pipeline) {
+    setPipelines((prev) => prev.map((p) => p.id === updated.id ? updated : p));
+    setEditingPipeline(null);
+  }
 
   return (
     <div className="px-8 py-8 max-w-[900px] mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold" style={{ color: "#f5f5f5" }}>Pipelines</h1>
         <p className="text-sm mt-1" style={{ color: "#71717a" }}>
-          {mockPipelines.length} pipelines · {mockPipelines.filter((p) => p.status === "running").length} running
+          {pipelines.length} pipelines · {pipelines.filter((p) => p.status === "running").length} running
         </p>
       </div>
 
       <div className="flex flex-col gap-4">
-        {mockPipelines.map((pipeline) => {
+        {pipelines.map((pipeline) => {
           const s = STATUS_STYLES[pipeline.status];
           const isOpen = expanded === pipeline.id;
           const pipelineAgents = pipeline.agents.map((aid) => mockAgents.find((a) => a.id === aid)).filter(Boolean);
@@ -52,11 +61,11 @@ export default function PipelinesPage() {
               style={{ background: "#111111", borderColor: "#1f1f1f" }}
             >
               {/* Header */}
-              <button
-                onClick={() => setExpanded(isOpen ? null : pipeline.id)}
-                className="w-full flex items-start gap-4 p-5 text-left transition-colors duration-150 hover:bg-[#161616]"
-              >
-                <div className="flex-1 min-w-0">
+              <div className="flex items-start gap-4 p-5">
+                <button
+                  onClick={() => setExpanded(isOpen ? null : pipeline.id)}
+                  className="flex-1 text-left min-w-0"
+                >
                   <div className="flex items-center gap-3 mb-1">
                     <span className="text-base font-semibold" style={{ color: "#f5f5f5" }}>
                       {pipeline.title}
@@ -68,10 +77,8 @@ export default function PipelinesPage() {
                       {s.label}
                     </span>
                   </div>
-                  <p className="text-sm" style={{ color: "#71717a" }}>{pipeline.description}</p>
-
-                  {/* Agent sequence */}
-                  <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <p className="text-sm mb-3" style={{ color: "#71717a" }}>{pipeline.description}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
                     {pipelineAgents.map((agent, idx) => {
                       if (!agent) return null;
                       return (
@@ -90,20 +97,34 @@ export default function PipelinesPage() {
                       );
                     })}
                   </div>
+                </button>
+
+                {/* Actions */}
+                <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setEditingPipeline(pipeline); }}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
+                    style={{ background: "#1f1f1f", color: "#71717a" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#71717a"; }}
+                  >
+                    Edit
+                  </button>
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    onClick={() => setExpanded(isOpen ? null : pipeline.id)}
+                    className="cursor-pointer transition-transform duration-150"
+                    style={{ color: "#71717a", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                  >
+                    <polyline points="6 9 12 15 18 9" />
+                  </svg>
                 </div>
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="shrink-0 mt-1 transition-transform duration-150"
-                  style={{ color: "#71717a", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
-                >
-                  <polyline points="6 9 12 15 18 9" />
-                </svg>
-              </button>
+              </div>
 
               {/* Expanded plan */}
               {isOpen && (
@@ -134,6 +155,15 @@ export default function PipelinesPage() {
           );
         })}
       </div>
+
+      {editingPipeline && (
+        <EditPipelineModal
+          pipeline={editingPipeline}
+          allAgents={mockAgents}
+          onClose={() => setEditingPipeline(null)}
+          onSave={handleSavePipeline}
+        />
+      )}
     </div>
   );
 }
