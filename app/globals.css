@@ -55,3 +55,12 @@ body {
 .modal-overlay {
   animation: fadeIn 150ms ease both;
 }
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.slide-over {
+  animation: slideInRight 200ms ease both;
+}

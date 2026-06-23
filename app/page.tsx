@@ -6,6 +6,7 @@ import TaskCard from "@/components/TaskCard";
 import Toast from "@/components/Toast";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
+import TaskSlideOver from "@/components/TaskSlideOver";
 import { mockAgents, mockTasks } from "@/lib/mock-data";
 import type { Agent, Task } from "@/types";
 
@@ -23,6 +24,7 @@ export default function DashboardPage() {
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [modalStatus, setModalStatus] = useState<Task["status"]>("backlog");
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   function getAgent(id: string) {
     return agents.find((a) => a.id === id);
@@ -35,6 +37,11 @@ export default function DashboardPage() {
   function handleCreateAgent(agent: Agent) {
     setAgents((prev) => [...prev, agent]);
     setShowAgentModal(false);
+  }
+
+  function handleMoveTask(taskId: string, status: Task["status"]) {
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status } : t));
+    if (selectedTask?.id === taskId) setSelectedTask((t) => t ? { ...t, status } : null);
   }
 
   function openTaskModal(status: Task["status"]) {
@@ -138,6 +145,8 @@ export default function DashboardPage() {
                       task={task}
                       agent={getAgent(task.assigned_to)}
                       onRun={() => setToast(true)}
+                      onClick={() => setSelectedTask(task)}
+                      onMove={(status) => handleMoveTask(task.id, status)}
                     />
                   ))}
                 </div>
@@ -160,6 +169,14 @@ export default function DashboardPage() {
 
       {showAgentModal && (
         <CreateAgentModal onClose={() => setShowAgentModal(false)} onCreate={handleCreateAgent} />
+      )}
+
+      {selectedTask && (
+        <TaskSlideOver
+          task={selectedTask}
+          agent={getAgent(selectedTask.assigned_to)}
+          onClose={() => setSelectedTask(null)}
+        />
       )}
 
       {toast && <Toast message="Coming soon — agent execution not yet wired." onClose={() => setToast(false)} />}

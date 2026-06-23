@@ -6,6 +6,7 @@ import type { Task } from "@/types";
 import TaskCard from "@/components/TaskCard";
 import Toast from "@/components/Toast";
 import CreateTaskModal from "@/components/CreateTaskModal";
+import TaskSlideOver from "@/components/TaskSlideOver";
 
 const COLUMNS: { key: Task["status"]; label: string }[] = [
   { key: "backlog", label: "Backlog" },
@@ -19,6 +20,7 @@ export default function TasksPage() {
   const [toast, setToast] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [initialStatus, setInitialStatus] = useState<Task["status"]>("backlog");
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
 
   function getAgent(id: string) {
     return mockAgents.find((a) => a.id === id);
@@ -27,6 +29,11 @@ export default function TasksPage() {
   function openModal(status: Task["status"]) {
     setInitialStatus(status);
     setShowModal(true);
+  }
+
+  function handleMoveTask(taskId: string, status: Task["status"]) {
+    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status } : t));
+    if (selectedTask?.id === taskId) setSelectedTask((t) => t ? { ...t, status } : null);
   }
 
   return (
@@ -82,6 +89,8 @@ export default function TasksPage() {
                     task={task}
                     agent={getAgent(task.assigned_to)}
                     onRun={() => setToast(true)}
+                    onClick={() => setSelectedTask(task)}
+                    onMove={(status) => handleMoveTask(task.id, status)}
                   />
                 ))}
               </div>
@@ -98,6 +107,14 @@ export default function TasksPage() {
             setTasks((prev) => [...prev, task]);
             setShowModal(false);
           }}
+        />
+      )}
+
+      {selectedTask && (
+        <TaskSlideOver
+          task={selectedTask}
+          agent={getAgent(selectedTask.assigned_to)}
+          onClose={() => setSelectedTask(null)}
         />
       )}
 
