@@ -2,6 +2,8 @@
 
 import { use, useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
 import { mockAgents, mockConversations, mockMessages, mockTasks } from "@/lib/mock-data";
 import type { Message } from "@/types";
 import { notFound } from "next/navigation";
@@ -126,14 +128,20 @@ export default function ConversationPage({
                 </div>
                 <div className={`max-w-[70%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-1`}>
                   <div
-                    className="px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap"
+                    className="px-4 py-3 text-sm leading-relaxed markdown-body"
                     style={
                       isUser
                         ? { background: "#1f1f1f", color: "#f5f5f5", borderRadius: "18px 4px 18px 18px" }
                         : { background: "#111111", color: "#f5f5f5", border: "1px solid #1f1f1f", borderRadius: "4px 18px 18px 18px" }
                     }
                   >
-                    {msg.content}
+                    {isUser ? (
+                      <span className="whitespace-pre-wrap">{msg.content}</span>
+                    ) : (
+                      <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+                        {msg.content}
+                      </ReactMarkdown>
+                    )}
                   </div>
                   <div className="text-[10px] px-1" style={{ color: "#3f3f46" }}>
                     {timeStr(msg.created_at)}
