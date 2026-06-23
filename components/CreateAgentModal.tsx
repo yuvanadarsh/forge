@@ -249,7 +249,7 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
             className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs border"
             style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#71717a" }}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "#f59e0b", shrink: 0 }}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "#f59e0b" }}>
               <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
             </svg>
             Model assigned in Settings
