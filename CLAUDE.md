@@ -196,3 +196,50 @@ Fixed left sidebar, always visible:
 - This file is a living document — update it at the end of every session
 - Add any new conventions, decisions, or architectural notes made during the session
 - Never remove existing content unless it's been superseded — add a strikethrough note instead
+
+---
+
+## Session 1 Decisions (2026-06-23)
+
+### Framework version
+`create-next-app` installed Next.js 16.2.9 (latest). Proceeding with 16 — fully compatible with all patterns.
+
+### File structure created this session
+```
+app/
+  page.tsx                          — Dashboard (/)
+  layout.tsx                        — Root layout with Sidebar
+  globals.css                       — Design tokens + scrollbar styling
+  agents/
+    page.tsx                        — Agent registry (/agents)
+    [id]/
+      page.tsx                      — Agent detail (/agents/[id])
+      conversations/
+        [convId]/
+          page.tsx                  — Chat window (/agents/[id]/conversations/[convId])
+  chat/page.tsx                     — Global chat (/chat)
+  pipelines/page.tsx                — Pipelines list (/pipelines)
+  tasks/page.tsx                    — Tasks kanban (/tasks)
+  settings/page.tsx                 — Settings placeholder (/settings)
+components/
+  Sidebar.tsx                       — Fixed left nav
+  AgentCard.tsx                     — Agent card with gradient ring
+  TaskCard.tsx                      — Kanban task card
+  Toast.tsx                         — Fade-in/out toast notification
+  CreateAgentModal.tsx              — New agent form modal
+  CreateTaskModal.tsx               — New task form modal (with agent picker grid)
+types/index.ts                      — All interfaces
+lib/mock-data.ts                    — Static mock data (agents, tasks, pipelines, conversations, messages)
+```
+
+### Gradient border technique
+Agent cards use a wrapper div with `padding: 1px` and `background: linear-gradient(...)` to achieve gradient borders that respect `border-radius`. CSS `border-image` doesn't support border-radius.
+
+### Modal fade transition
+Modals use the `.modal-overlay` CSS class (defined in `globals.css`) which applies a `fadeIn` keyframe animation (150ms). This is the standard approach for all modals.
+
+### Conversation routing
+`/agents/[id]/conversations/new` is a valid route — the conversation page handles `convId === "new"` by starting with an empty message list.
+
+### State management
+All create operations (agents, tasks) use local React `useState` — data is not persisted across page navigations or refreshes. This is intentional for the mock phase.
