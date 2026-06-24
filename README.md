@@ -41,6 +41,13 @@
 - [x] **Full Settings page** — API keys (add/update/delete/test), Embeddings (locked model picker + warning), Export Data (working JSON downloads)
 - [x] **Pipeline edit modal** — Edit title and reorder agent sequence with up/down arrows; Add Agent picker
 
+### Phase 1.75 — Analytics, Pipeline Chat & Provider Vault ✅
+
+- [x] **Cost Analytics Graph** — Grouped bar chart on dashboard with provider/model filter chips and metric/timeline dropdowns (recharts)
+- [x] **Pipeline Chat** — Three-panel chat interface at `/pipelines/[id]/chat` with collapsible execution plan, @mention highlighting, and participants sidebar
+- [x] **Dynamic API Key Vault** — User-managed provider list in settings with add/edit/delete (Anthropic is default and cannot be deleted)
+- [x] **Agent Stat Cards** — Lifetime cost, this-month cost, and avg-per-day cards above the token usage graph on agent detail page
+
 ### Phase 2 — Backend Integration ⬜
 
 - [ ] Supabase database schema and migrations
@@ -104,29 +111,41 @@ npm run build
 
 ```
 app/
-  page.tsx                    Dashboard (/)
+  page.tsx                    Dashboard (/ — agent grid + kanban + cost analytics graph)
   layout.tsx                  Root layout + sidebar
   agents/page.tsx             Agent registry
-  agents/[id]/page.tsx        Agent detail (editable system prompt + token graph)
+  agents/[id]/page.tsx        Agent detail (stat cards + editable system prompt + token graph)
   agents/[id]/conversations/[convId]/page.tsx  Chat window (markdown rendering)
   chat/page.tsx               Global chat (single-row density layout)
-  pipelines/page.tsx          Pipelines (edit modal with reorderable agents)
+  pipelines/page.tsx          Pipelines list with status badges
+  pipelines/[id]/chat/page.tsx  Three-panel pipeline chat (plan | chat | participants)
   tasks/page.tsx              Tasks kanban (move-to + slide-over)
-  settings/page.tsx           Settings (API keys, embeddings, export)
+  settings/page.tsx           Settings (dynamic provider vault, embeddings, export)
 components/
   Sidebar.tsx                 Fixed left navigation
   AgentCard.tsx               Gradient-border agent card (equal height)
+  AgentStatCards.tsx          Lifetime/monthly/daily cost stat cards
   TaskCard.tsx                Kanban task card (move-to dropdown)
   TaskSlideOver.tsx           Task detail slide-over panel
   TokenUsageGraph.tsx         Recharts bar chart with interval toggle
-  EditPipelineModal.tsx       Pipeline edit modal with agent reordering
+  CostAnalyticsGraph.tsx      State/filter wrapper for dashboard analytics
+  CostAnalyticsChart.tsx      Recharts grouped bar chart for cost analytics
+  PipelineChatMessage.tsx     Message bubble with @mention highlighting
+  PipelineChatInput.tsx       Textarea + send button for pipeline chat
+  PipelineExecutionPlan.tsx   Collapsible left panel with markdown plan
+  PipelineParticipants.tsx    Right sidebar with participant status dots
+  ProviderRow.tsx             Single API provider row with inline edit/delete
+  AddProviderModal.tsx        Modal for adding a new API provider
+  EmbeddingsSection.tsx       Embeddings config section (settings)
+  ExportSection.tsx           Export data section (settings)
   Toast.tsx                   Fade toast notification
   CreateAgentModal.tsx        New agent form (role presets)
   CreateTaskModal.tsx         New task form
 lib/
   mock-data.ts                All static mock data
+  analytics-mock-data.ts      Mock data for cost analytics chart
 types/
-  index.ts                    TypeScript interfaces
+  index.ts                    TypeScript interfaces (Agent, Task, Pipeline, Conversation, Message, Provider)
 ```
 
 ---
