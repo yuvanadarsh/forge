@@ -20,7 +20,7 @@ function Field({ label, optional, ...props }: React.InputHTMLAttributes<HTMLInpu
       <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
         {label}{optional && <span style={{ color: "#3f3f46" }}> (optional)</span>}
       </label>
-      <input {...props} className={inputCls} style={inputSt} onFocus={hoverAmber} onBlur={resetBorder} />
+      <input onFocus={hoverAmber} onBlur={resetBorder} {...props} className={inputCls} style={inputSt} />
     </div>
   );
 }

@@ -1,7 +1,5 @@
 "use client";
 
-import { useState } from "react";
-
 const EMBEDDING_MODELS = [
   { id: "voyage-3", label: "voyage-3 (VoyageAI)" },
   { id: "voyage-3-lite", label: "voyage-3-lite (VoyageAI)" },
@@ -13,7 +11,7 @@ interface Props {
 }
 
 export default function EmbeddingsSection({ showToast }: Props) {
-  const [embeddingModel] = useState("voyage-3");
+  const embeddingModel = "voyage-3";
 
   return (
     <>
