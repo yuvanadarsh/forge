@@ -5,6 +5,7 @@ import Link from "next/link";
 import { mockAgents, mockConversations, mockTasks } from "@/lib/mock-data";
 import { notFound } from "next/navigation";
 import TokenUsageGraph from "@/components/TokenUsageGraph";
+import AgentStatCards from "@/components/AgentStatCards";
 
 function timeAgo(iso: string | null) {
   if (!iso) return "never";
@@ -150,6 +151,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
       {/* Token Usage Graph */}
       <section className="mb-8">
+        <AgentStatCards agent={agentData} />
         <TokenUsageGraph totalTokens={agentData.tokens_used} accentColor={pair[0]} />
       </section>
 
