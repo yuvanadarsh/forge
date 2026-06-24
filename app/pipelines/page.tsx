@@ -1,9 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { mockPipelines, mockAgents } from "@/lib/mock-data";
 import type { Pipeline } from "@/types";
-import EditPipelineModal from "@/components/EditPipelineModal";
 
 const STATUS_STYLES = {
   pending_approval: { label: "Pending Approval", color: "#f59e0b", bg: "#2a1a00" },
@@ -30,14 +30,8 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 export default function PipelinesPage() {
-  const [pipelines, setPipelines] = useState<Pipeline[]>(mockPipelines);
+  const [pipelines] = useState<Pipeline[]>(mockPipelines);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [editingPipeline, setEditingPipeline] = useState<Pipeline | null>(null);
-
-  function handleSavePipeline(updated: Pipeline) {
-    setPipelines((prev) => prev.map((p) => p.id === updated.id ? updated : p));
-    setEditingPipeline(null);
-  }
 
   return (
     <div className="px-8 py-8 max-w-[900px] mx-auto">
@@ -101,15 +95,16 @@ export default function PipelinesPage() {
 
                 {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0 mt-0.5">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setEditingPipeline(pipeline); }}
+                  <Link
+                    href={`/pipelines/${pipeline.id}/chat`}
+                    onClick={(e) => e.stopPropagation()}
                     className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
-                    style={{ background: "#1f1f1f", color: "#71717a" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#71717a"; }}
+                    style={{ background: "#1f1f1f", color: "#f59e0b" }}
+                    onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#2a1a00"; }}
+                    onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#1f1f1f"; }}
                   >
-                    Edit
-                  </button>
+                    Open Pipeline Chat →
+                  </Link>
                   <svg
                     width="16"
                     height="16"
@@ -156,14 +151,6 @@ export default function PipelinesPage() {
         })}
       </div>
 
-      {editingPipeline && (
-        <EditPipelineModal
-          pipeline={editingPipeline}
-          allAgents={mockAgents}
-          onClose={() => setEditingPipeline(null)}
-          onSave={handleSavePipeline}
-        />
-      )}
     </div>
   );
 }
