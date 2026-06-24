@@ -27,6 +27,20 @@
 - [x] **Sidebar navigation** — Fixed left sidebar with Forge logo, nav links, active state, Settings
 - [x] **Design system** — Dark theme (#0a0a0a background, #f59e0b amber accent, Geist font)
 
+### Phase 1.5 — UI Polish ✅
+
+- [x] **Equal-height agent cards** — CSS grid `items-stretch` + `h-full` on card internals
+- [x] **Create Agent on Dashboard** — "+ Create Agent" button in dashboard header alongside "+ New Task"
+- [x] **Role preset system** — Create Agent modal now has 12 presets (CEO, CTO, Architect, etc.) that auto-fill role title, specialty, and system prompt — all fields remain freely editable
+- [x] **Task "Move to →" dropdown** — Every task card now has an inline status mover on both `/tasks` and dashboard kanban
+- [x] **Task detail slide-over** — Click any task card to open a 400px slide-over panel showing full title, description, assigned agent, priority, status, and created date
+- [x] **Editable system prompt** — Agent detail page now has Edit/Save/Cancel for system prompt
+- [x] **Token usage graph** — Bar chart on agent detail page with Day/Week/Month/All Time toggle (recharts)
+- [x] **Markdown + syntax highlighting** — Chat messages render markdown with `react-markdown` + `rehype-highlight`
+- [x] **Condensed /chat page** — Single-row layout with avatar, agent name·role, conversation title, preview, timestamp; left border color matches agent
+- [x] **Full Settings page** — API keys (add/update/delete/test), Embeddings (locked model picker + warning), Export Data (working JSON downloads)
+- [x] **Pipeline edit modal** — Edit title and reorder agent sequence with up/down arrows; Add Agent picker
+
 ### Phase 2 — Backend Integration ⬜
 
 - [ ] Supabase database schema and migrations
@@ -54,6 +68,8 @@
 | Language | TypeScript (strict) |
 | Styling | Tailwind CSS v4 |
 | Font | Geist (via `next/font/google`) |
+| Charts | recharts |
+| Markdown | react-markdown + rehype-highlight + highlight.js |
 | State | React `useState` (mock phase) |
 | Data | Static mock data in `lib/mock-data.ts` |
 
@@ -91,18 +107,21 @@ app/
   page.tsx                    Dashboard (/)
   layout.tsx                  Root layout + sidebar
   agents/page.tsx             Agent registry
-  agents/[id]/page.tsx        Agent detail
-  agents/[id]/conversations/[convId]/page.tsx  Chat window
-  chat/page.tsx               Global chat
-  pipelines/page.tsx          Pipelines
-  tasks/page.tsx              Tasks kanban
-  settings/page.tsx           Settings (placeholder)
+  agents/[id]/page.tsx        Agent detail (editable system prompt + token graph)
+  agents/[id]/conversations/[convId]/page.tsx  Chat window (markdown rendering)
+  chat/page.tsx               Global chat (single-row density layout)
+  pipelines/page.tsx          Pipelines (edit modal with reorderable agents)
+  tasks/page.tsx              Tasks kanban (move-to + slide-over)
+  settings/page.tsx           Settings (API keys, embeddings, export)
 components/
   Sidebar.tsx                 Fixed left navigation
-  AgentCard.tsx               Gradient-border agent card
-  TaskCard.tsx                Kanban task card
+  AgentCard.tsx               Gradient-border agent card (equal height)
+  TaskCard.tsx                Kanban task card (move-to dropdown)
+  TaskSlideOver.tsx           Task detail slide-over panel
+  TokenUsageGraph.tsx         Recharts bar chart with interval toggle
+  EditPipelineModal.tsx       Pipeline edit modal with agent reordering
   Toast.tsx                   Fade toast notification
-  CreateAgentModal.tsx        New agent form
+  CreateAgentModal.tsx        New agent form (role presets)
   CreateTaskModal.tsx         New task form
 lib/
   mock-data.ts                All static mock data

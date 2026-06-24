@@ -51,9 +51,9 @@ interface Props {
 
 export default function AgentCard({ agent, currentTask }: Props) {
   return (
-    <Link href={`/agents/${agent.id}`} className="block group">
+    <Link href={`/agents/${agent.id}`} className="block group h-full">
       <div
-        className="rounded-xl overflow-hidden transition-transform duration-150 group-hover:scale-[1.01]"
+        className="rounded-xl overflow-hidden transition-transform duration-150 group-hover:scale-[1.01] h-full"
         style={{ padding: "1px", background: getGradient(agent.avatar_color) }}
       >
         <div className="rounded-xl p-4 h-full flex flex-col gap-3" style={{ background: "#111111" }}>

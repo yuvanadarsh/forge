@@ -243,3 +243,56 @@ Modals use the `.modal-overlay` CSS class (defined in `globals.css`) which appli
 
 ### State management
 All create operations (agents, tasks) use local React `useState` — data is not persisted across page navigations or refreshes. This is intentional for the mock phase.
+
+---
+
+## Session 2 Decisions (2026-06-23)
+
+### New dependencies added
+- `recharts` — token usage bar chart on agent detail page
+- `react-markdown` + `rehype-highlight` + `highlight.js` — markdown and code syntax highlighting in chat messages
+- CSS for highlight.js (`github-dark` theme) imported in `globals.css` via `@import "highlight.js/styles/github-dark.css"`
+
+### New components created
+```
+components/
+  TaskSlideOver.tsx         — Slide-over panel for task detail (400px, right side, .slide-over CSS animation)
+  TokenUsageGraph.tsx       — Recharts bar chart with Day/Week/Month/All Time toggle; generates deterministic mock data from agent.tokens_used
+  EditPipelineModal.tsx     — Edit pipeline title and reorder/add agents with up/down arrows (no drag-drop yet)
+```
+
+### AgentCard height fix
+Added `h-full` to both the `Link` wrapper and the gradient border wrapper div. Grid uses `items-stretch` to equalize row heights.
+
+### Create Agent modal — role preset system
+Replaced the locked role dropdown with a two-level approach:
+1. A "Role Preset" dropdown (12 options + Custom) that auto-fills role title, specialty, and system_prompt as suggestions
+2. A separate "Role Title" text input that the user can freely edit after preset selection
+Model dropdown removed — replaced with a static info note "Model assigned in Settings"
+
+### Task interactions (TaskCard, dashboard, /tasks)
+- `TaskCard` now accepts optional `onClick` and `onMove` props
+- `Move →` dropdown renders above the card (absolute-positioned, `bottom-full`) and stops event propagation
+- Clicking the card body opens the `TaskSlideOver` panel
+- `handleMoveTask` updates both the tasks array and the currently-open slide-over task reference in sync
+
+### Agent detail page — made client component
+`/agents/[id]/page.tsx` now has `"use client"` directive since it needs `useState` for system prompt editing. Uses `use(params)` from React 19 which works in client components.
+
+### Chat window — markdown rendering
+Only assistant messages (`role === "assistant"`) go through `ReactMarkdown`. User messages use plain `whitespace-pre-wrap` to avoid double-rendering markdown in sent text.
+
+### /chat page redesign
+Removed grouped-by-agent header rows. Rows now use `borderLeft: 3px solid pair[0]` (the agent's primary gradient color) as the visual grouping signal.
+
+### Settings page — API keys
+Keys stored in React `useState` as plaintext (mock only). In production these would be encrypted server-side. The "Test" and "Re-embed" buttons both show Coming Soon toast.
+
+### Export Data
+Uses browser `Blob` + `URL.createObjectURL` + temporary `<a>` element to trigger JSON file download directly from mock data. Works without any server-side code.
+
+### Pipeline editing
+`mockPipelines` is copied into local state on the Pipelines page so edits are reflected in the same session. The "Add Agent" picker in the edit modal filters out agents already in the sequence.
+
+### .env.example
+Added at repo root with `DATABASE_URL` and `NEXTJS_PORT` as placeholder structure for future backend integration.

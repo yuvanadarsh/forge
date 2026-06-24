@@ -12,19 +12,76 @@ const COLOR_PRESETS = [
   "#f97316",
 ];
 
-const ROLE_OPTIONS = [
-  "CEO", "CTO", "Architect", "Frontend Dev", "Backend Dev",
-  "Tester", "Bug Patcher", "Project Manager", "Data Scientist", "DevOps",
-];
+type Preset = {
+  role: string;
+  specialty: string;
+  system_prompt: string;
+};
 
-const MODEL_OPTIONS = [
-  "claude-opus-4-8",
-  "claude-sonnet-4-6",
-  "claude-haiku-4-5",
-  "gpt-4o",
-  "gpt-4o-mini",
-  "gemini-2.5-pro",
-];
+const ROLE_PRESETS: Record<string, Preset> = {
+  CEO: {
+    role: "CEO",
+    specialty: "Strategic vision, team leadership, and high-level decision making",
+    system_prompt: "You are the Chief Executive Officer of this project. Your role is to provide high-level strategic direction, make final decisions on priorities, and ensure all agents are aligned toward the overarching goal. Think big picture, communicate clearly, and empower your team.",
+  },
+  CTO: {
+    role: "CTO",
+    specialty: "Technical architecture, engineering standards, and technology decisions",
+    system_prompt: "You are the Chief Technology Officer. Your role is to own the technical vision, define architecture standards, evaluate technology choices, and ensure engineering excellence across all workstreams.",
+  },
+  Architect: {
+    role: "Architect",
+    specialty: "System design, API contracts, and scalable architecture patterns",
+    system_prompt: "You are a Software Architect. You design systems that are scalable, maintainable, and secure. You define API contracts, data models, and integration patterns. You review code for architectural compliance and guide implementation teams.",
+  },
+  "Frontend Dev": {
+    role: "Frontend Dev",
+    specialty: "React, Next.js, TypeScript, Tailwind CSS, and UI/UX implementation",
+    system_prompt: "You are a Frontend Developer specializing in modern web technologies. You build polished, accessible, and performant user interfaces using React and Next.js. You care deeply about user experience, design consistency, and component reusability.",
+  },
+  "Backend Dev": {
+    role: "Backend Dev",
+    specialty: "APIs, databases, authentication, and server-side logic",
+    system_prompt: "You are a Backend Developer. You design and implement robust APIs, manage database schemas, handle authentication and authorization, and ensure data integrity and security across all server-side systems.",
+  },
+  Tester: {
+    role: "Tester",
+    specialty: "QA, test automation, edge case analysis, and regression testing",
+    system_prompt: "You are a QA Engineer. You write comprehensive test suites covering unit, integration, and end-to-end scenarios. You identify edge cases, validate requirements, and ensure that no regression slips through to production.",
+  },
+  "Bug Patcher": {
+    role: "Bug Patcher",
+    specialty: "Debugging, root cause analysis, and targeted code fixes",
+    system_prompt: "You are a Bug Patcher. When issues arise, you quickly diagnose root causes, apply minimal targeted fixes, and verify that the fix doesn't introduce regressions. You document what went wrong and why.",
+  },
+  "Project Manager": {
+    role: "Project Manager",
+    specialty: "Task coordination, timeline tracking, and cross-team communication",
+    system_prompt: "You are a Project Manager. You coordinate tasks across agents, track progress against milestones, flag blockers early, and ensure the team is always working on the highest-priority items. You keep communication clear and concise.",
+  },
+  "PR Reviewer": {
+    role: "PR Reviewer",
+    specialty: "Code review, standards enforcement, and constructive feedback",
+    system_prompt: "You are a Pull Request Reviewer. You review code changes for correctness, security, performance, and adherence to project standards. You provide clear, actionable feedback and approve only code that meets the bar.",
+  },
+  "Data Scientist": {
+    role: "Data Scientist",
+    specialty: "Data analysis, ML models, and insight generation",
+    system_prompt: "You are a Data Scientist. You analyze data to extract insights, build and evaluate machine learning models, and translate findings into actionable recommendations for the team.",
+  },
+  DevOps: {
+    role: "DevOps",
+    specialty: "CI/CD, infrastructure, deployment automation, and monitoring",
+    system_prompt: "You are a DevOps Engineer. You manage CI/CD pipelines, infrastructure as code, containerization, and deployment strategies. You ensure systems are reliable, observable, and easy to operate in production.",
+  },
+  Custom: {
+    role: "",
+    specialty: "",
+    system_prompt: "",
+  },
+};
+
+const PRESET_KEYS = Object.keys(ROLE_PRESETS);
 
 interface Props {
   onClose: () => void;
@@ -32,12 +89,20 @@ interface Props {
 }
 
 export default function CreateAgentModal({ onClose, onCreate }: Props) {
+  const [preset, setPreset] = useState("CEO");
+  const [role, setRole] = useState(ROLE_PRESETS.CEO.role);
+  const [specialty, setSpecialty] = useState(ROLE_PRESETS.CEO.specialty);
+  const [systemPrompt, setSystemPrompt] = useState(ROLE_PRESETS.CEO.system_prompt);
   const [name, setName] = useState("");
-  const [role, setRole] = useState(ROLE_OPTIONS[0]);
-  const [specialty, setSpecialty] = useState("");
-  const [model, setModel] = useState(MODEL_OPTIONS[1]);
-  const [systemPrompt, setSystemPrompt] = useState("");
   const [color, setColor] = useState(COLOR_PRESETS[0]);
+
+  function handlePresetChange(key: string) {
+    setPreset(key);
+    const p = ROLE_PRESETS[key];
+    setRole(p.role);
+    setSpecialty(p.specialty);
+    setSystemPrompt(p.system_prompt);
+  }
 
   function handleCreate() {
     const agent: Agent = {
@@ -46,7 +111,7 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
       role,
       specialty,
       avatar_color: color,
-      model,
+      model: "claude-sonnet-4-6",
       system_prompt: systemPrompt,
       status: "idle",
       last_active: new Date().toISOString(),
@@ -57,6 +122,21 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
     onCreate(agent);
   }
 
+  const inputStyle = {
+    background: "#0d0d0d",
+    borderColor: "#1f1f1f",
+    color: "#f5f5f5",
+  };
+
+  function focusBorder(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    e.target.style.borderColor = "#f59e0b";
+  }
+  function blurBorder(e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) {
+    e.target.style.borderColor = "#1f1f1f";
+  }
+
+  const inputClass = "w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150";
+
   return (
     <div
       className="modal-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -64,13 +144,16 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
-        className="w-full max-w-[520px] rounded-2xl border shadow-2xl"
+        className="w-full max-w-[540px] rounded-2xl border shadow-2xl max-h-[90vh] flex flex-col"
         style={{ background: "#111111", borderColor: "#1f1f1f" }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b" style={{ borderColor: "#1f1f1f" }}>
+        <div className="flex items-center justify-between px-6 py-5 border-b shrink-0" style={{ borderColor: "#1f1f1f" }}>
           <h2 className="text-base font-semibold" style={{ color: "#f5f5f5" }}>Create Agent</h2>
-          <button onClick={onClose} className="transition-colors duration-150" style={{ color: "#71717a" }}
+          <button
+            onClick={onClose}
+            className="transition-colors duration-150"
+            style={{ color: "#71717a" }}
             onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5")}
             onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#71717a")}
           >
@@ -81,7 +164,7 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
         </div>
 
         {/* Body */}
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-6 py-5 space-y-4 overflow-y-auto flex-1">
           {/* Color picker */}
           <div>
             <label className="text-xs font-medium block mb-2" style={{ color: "#71717a" }}>Avatar Color</label>
@@ -108,24 +191,43 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Aria"
-              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
-              style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-              onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
-              onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+              className={inputClass}
+              style={inputStyle}
+              onFocus={focusBorder}
+              onBlur={blurBorder}
             />
           </div>
 
-          {/* Role */}
+          {/* Preset selector */}
           <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>Role</label>
+            <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>Role Preset</label>
             <select
+              value={preset}
+              onChange={(e) => handlePresetChange(e.target.value)}
+              className={`${inputClass} cursor-pointer`}
+              style={inputStyle}
+              onFocus={focusBorder}
+              onBlur={blurBorder}
+            >
+              {PRESET_KEYS.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <p className="text-xs mt-1" style={{ color: "#3f3f46" }}>
+              Pre-fills role, specialty, and system prompt — all fields remain editable.
+            </p>
+          </div>
+
+          {/* Role title (editable text input) */}
+          <div>
+            <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>Role Title</label>
+            <input
               value={role}
               onChange={(e) => setRole(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150 cursor-pointer"
-              style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-            >
-              {ROLE_OPTIONS.map((r) => <option key={r} value={r}>{r}</option>)}
-            </select>
+              placeholder="e.g. Senior Frontend Engineer"
+              className={inputClass}
+              style={inputStyle}
+              onFocus={focusBorder}
+              onBlur={blurBorder}
+            />
           </div>
 
           {/* Specialty */}
@@ -135,24 +237,22 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
               value={specialty}
               onChange={(e) => setSpecialty(e.target.value)}
               placeholder="e.g. React, Next.js, and UI/UX implementation"
-              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
-              style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-              onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
-              onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+              className={inputClass}
+              style={inputStyle}
+              onFocus={focusBorder}
+              onBlur={blurBorder}
             />
           </div>
 
-          {/* Model */}
-          <div>
-            <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>Model</label>
-            <select
-              value={model}
-              onChange={(e) => setModel(e.target.value)}
-              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150 cursor-pointer"
-              style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-            >
-              {MODEL_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
+          {/* Model note */}
+          <div
+            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs border"
+            style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#71717a" }}
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "#f59e0b" }}>
+              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+            Model assigned in Settings
           </div>
 
           {/* System Prompt */}
@@ -162,17 +262,17 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
               value={systemPrompt}
               onChange={(e) => setSystemPrompt(e.target.value)}
               placeholder="Describe this agent's persona and instructions..."
-              rows={4}
-              className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150 resize-none"
-              style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-              onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
-              onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+              rows={5}
+              className={`${inputClass} resize-none`}
+              style={inputStyle}
+              onFocus={focusBorder}
+              onBlur={blurBorder}
             />
           </div>
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-3 px-6 py-4 border-t" style={{ borderColor: "#1f1f1f" }}>
+        <div className="flex justify-end gap-3 px-6 py-4 border-t shrink-0" style={{ borderColor: "#1f1f1f" }}>
           <button
             onClick={onClose}
             className="px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150"

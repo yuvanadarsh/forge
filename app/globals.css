@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "highlight.js/styles/github-dark.css";
 
 :root {
   --background: #0a0a0a;
@@ -55,3 +56,43 @@ body {
 .modal-overlay {
   animation: fadeIn 150ms ease both;
 }
+
+@keyframes slideInRight {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+.slide-over {
+  animation: slideInRight 200ms ease both;
+}
+
+/* Markdown message rendering */
+.markdown-body p { margin-bottom: 0.5em; }
+.markdown-body p:last-child { margin-bottom: 0; }
+.markdown-body ul, .markdown-body ol { padding-left: 1.25em; margin-bottom: 0.5em; }
+.markdown-body li { margin-bottom: 0.25em; }
+.markdown-body code:not(pre code) {
+  background: rgba(255,255,255,0.08);
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  font-size: 0.85em;
+  font-family: var(--font-mono, monospace);
+}
+.markdown-body pre {
+  margin: 0.5em 0;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.8em;
+}
+.markdown-body pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+.markdown-body h1, .markdown-body h2, .markdown-body h3 {
+  font-weight: 600;
+  color: #f5f5f5;
+  margin-bottom: 0.35em;
+}
+.markdown-body strong { color: #f5f5f5; }
+.markdown-body a { color: #3b82f6; text-decoration: underline; }
