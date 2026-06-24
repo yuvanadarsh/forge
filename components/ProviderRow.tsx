@@ -24,6 +24,7 @@ export default function ProviderRow({ provider: p, onSaveKey, onDelete, onTest }
   }
 
   function saveKey() {
+    if (!editingKey.trim()) return;
     onSaveKey(p.id, editingKey);
     setIsEditing(false);
     setEditingKey("");
