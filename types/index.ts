@@ -53,6 +53,7 @@ export interface Message {
   agent_id: string;
   role: "user" | "assistant";
   content: string;
+  sender_agent_id?: string;
   created_at: string;
 }
 
