@@ -55,3 +55,11 @@ export interface Message {
   content: string;
   created_at: string;
 }
+
+export interface Provider {
+  id: string;
+  name: string;
+  baseUrl?: string;
+  apiKey?: string;
+  isDefault?: boolean;
+}

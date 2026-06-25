@@ -296,3 +296,57 @@ Uses browser `Blob` + `URL.createObjectURL` + temporary `<a>` element to trigger
 
 ### .env.example
 Added at repo root with `DATABASE_URL` and `NEXTJS_PORT` as placeholder structure for future backend integration.
+
+---
+
+## Session 3 Decisions (2026-06-24)
+
+### New components created
+```
+components/
+  CostAnalyticsGraph.tsx        — State/filter wrapper for dashboard analytics (providers, metric, timeline)
+  CostAnalyticsChart.tsx        — Recharts grouped bar chart rendering component
+  lib/analytics-mock-data.ts    — Mock data constants and buildData() for the analytics chart
+  PipelineChatMessage.tsx       — Message bubble with @mention highlighting (renderWithMentions helper)
+  PipelineChatInput.tsx         — Textarea + send button for pipeline chat
+  PipelineExecutionPlan.tsx     — Collapsible left panel rendering plan_md via react-markdown
+  PipelineParticipants.tsx      — Right sidebar showing pipeline agent participants with status dots
+  ProviderRow.tsx               — Single provider row with inline key edit, test, and delete actions
+  AddProviderModal.tsx          — Inline modal for adding a new API provider (name, base URL, key)
+  EmbeddingsSection.tsx         — Extracted embeddings config section from settings page
+  ExportSection.tsx             — Extracted export data section from settings page
+  AgentStatCards.tsx            — Three cost stat cards (lifetime, monthly, daily) for agent detail page
+```
+
+### New page created
+```
+app/pipelines/[id]/chat/page.tsx  — Three-panel pipeline chat (execution plan | chat | participants)
+```
+
+### Removed
+- `components/EditPipelineModal.tsx` — replaced entirely by /pipelines/[id]/chat
+
+### Pipeline Chat Pattern
+The pipeline chat page uses a three-panel flex layout:
+- Left (280px, collapsible): Execution plan rendered as markdown. Toggle button is an absolutely-positioned sibling OUTSIDE the overflow:hidden panel div — this is required to keep it visible when collapsed.
+- Center (flex-grow): Chat window with @mention highlighting. User bubbles: amber bg (#f59e0b), dark text (#0a0a0a). Assistant bubbles: #1a1a1a bg.
+- Right (240px, fixed): Participants list with agent avatar, name, role, and status dot.
+
+### @Mention Convention
+All message rendering uses a `renderWithMentions(text)` helper that splits on `/@(\w+)/g` and wraps matching segments in `<span style={{ color: '#f59e0b' }}>`. This is used in `PipelineChatMessage.tsx`.
+
+### Dynamic Provider Vault
+Settings page API keys section is now a dynamic list stored in React state:
+- `providers: Provider[]` starts with one default Anthropic entry (`isDefault: true`)
+- `ProviderRow` handles per-row key editing; guards against empty save (`if (!editingKey.trim()) return`)
+- `AddProviderModal` handles new provider creation (name, optional baseUrl, masked key)
+- `isDefault: true` rows do NOT render a Delete button — it's conditionally excluded from the DOM
+- `Provider` interface is in `types/index.ts`
+- Embeddings and Export sections extracted to their own components to keep settings/page.tsx under 150 lines
+
+### Cost Analytics Pattern
+Dashboard analytics graph uses:
+- Provider chips with multi-select (at least one must remain active)
+- Two controlled dropdowns: Metric (Input Tokens / Output Tokens / Cost) and Timeline (Day/Week/Month/Year/All Time)
+- Recharts `BarChart` with `ResponsiveContainer` and a `CustomTooltip` showing model name, value, % of total
+- Mock data in `lib/analytics-mock-data.ts` uses deterministic `Math.sin`-based generation per model

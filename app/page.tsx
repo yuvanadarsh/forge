@@ -7,6 +7,7 @@ import Toast from "@/components/Toast";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
 import TaskSlideOver from "@/components/TaskSlideOver";
+import CostAnalyticsGraph from "@/components/CostAnalyticsGraph";
 import { mockAgents, mockTasks } from "@/lib/mock-data";
 import type { Agent, Task } from "@/types";
 
@@ -104,6 +105,14 @@ export default function DashboardPage() {
             />
           ))}
         </div>
+      </section>
+
+      {/* Analytics */}
+      <section className="mb-10">
+        <h2 className="text-sm font-semibold uppercase tracking-wider mb-4" style={{ color: "#71717a" }}>
+          Analytics
+        </h2>
+        <CostAnalyticsGraph />
       </section>
 
       {/* Kanban */}
