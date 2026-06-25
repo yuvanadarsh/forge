@@ -85,8 +85,8 @@ export default function CostAnalyticsChart({ data, series, metric }: Props) {
   );
 
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={data} barCategoryGap="25%" barGap={2}>
+    <ResponsiveContainer width="100%" height={220}>
+      <BarChart data={data} barCategoryGap="25%" barGap={2} margin={{ top: 4, right: 4, left: 4, bottom: 16 }}>
         <XAxis
           dataKey="label"
           tick={{ fontSize: 10, fill: "#3f3f46" }}
