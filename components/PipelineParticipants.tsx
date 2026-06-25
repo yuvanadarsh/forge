@@ -4,7 +4,7 @@ import type { Agent } from "@/types";
 
 const STATUS_DOT: Record<Agent["status"], string> = {
   idle: "#71717a",
-  working: "#f59e0b",
+  working: "#22c55e",
   error: "#ef4444",
 };
 

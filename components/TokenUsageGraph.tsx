@@ -110,7 +110,8 @@ export default function TokenUsageGraph({ totalTokens, accentColor = "#f59e0b" }
             {data.map((entry, i) => (
               <Cell
                 key={i}
-                fill={entry.tokens === maxVal ? accentColor : "#2a2a2a"}
+                fill={accentColor}
+                fillOpacity={entry.tokens === maxVal ? 1 : 0.3}
               />
             ))}
           </Bar>
