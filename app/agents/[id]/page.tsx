@@ -35,9 +35,18 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
   const [systemPrompt, setSystemPrompt] = useState(agentData.system_prompt);
   const [editingPrompt, setEditingPrompt] = useState(false);
   const [promptDraft, setPromptDraft] = useState(agentData.system_prompt);
+  const [runHistoryOpen, setRunHistoryOpen] = useState(false);
 
   const conversations = mockConversations.filter((c) => c.agent_id === id);
   const taskConvos = conversations.filter((c) => c.task_id !== null);
+
+  const mockRunHistory = [
+    { id: "run-1", timestamp: "2026-06-23T14:30:00Z", taskName: "Design agent communication protocol", tokens: 18400, cost: 0.37, status: "success" as const },
+    { id: "run-2", timestamp: "2026-06-23T11:00:00Z", taskName: "Review TypeScript interfaces", tokens: 9200, cost: 0.18, status: "success" as const },
+    { id: "run-3", timestamp: "2026-06-22T16:45:00Z", taskName: "Finalize system component hierarchy", tokens: 22100, cost: 0.44, status: "error" as const },
+    { id: "run-4", timestamp: "2026-06-22T09:15:00Z", taskName: "Draft API schema proposal", tokens: 14600, cost: 0.29, status: "success" as const },
+    { id: "run-5", timestamp: "2026-06-21T13:00:00Z", taskName: "Architecture review session", tokens: 31200, cost: 0.62, status: "success" as const },
+  ];
 
   const statusColor = { idle: "#71717a", working: "#22c55e", error: "#ef4444" }[agentData.status];
   const statusLabel = { idle: "Idle", working: "Working", error: "Error" }[agentData.status];
@@ -206,6 +215,62 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             );
           })}
         </div>
+      </section>
+
+      {/* Run History */}
+      <section className="mb-8">
+        <button
+          onClick={() => setRunHistoryOpen((v) => !v)}
+          className="flex items-center justify-between w-full mb-4 group"
+        >
+          <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#71717a" }}>
+            Run History
+          </h2>
+          <span className="text-xs transition-colors duration-150" style={{ color: "#3f3f46" }}>
+            {runHistoryOpen ? "▲ Collapse" : "▼ Expand"}
+          </span>
+        </button>
+
+        {runHistoryOpen && (
+          <div className="flex flex-col gap-1">
+            {mockRunHistory.map((run) => (
+              <div
+                key={run.id}
+                className="flex items-center gap-4 px-4 py-3 rounded-xl border transition-colors duration-150 cursor-pointer"
+                style={{
+                  background: "#111111",
+                  borderColor: "#1f1f1f",
+                  borderLeft: run.status === "error" ? "3px solid #ef4444" : "3px solid transparent",
+                }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = run.status === "error" ? "#ef4444" : "#2a2a2a")}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = run.status === "error" ? "#ef4444" : "#1f1f1f")}
+              >
+                <div className="text-[10px] shrink-0" style={{ color: "#52525b", width: "80px" }}>
+                  {new Date(run.timestamp).toLocaleDateString([], { month: "short", day: "numeric" })}{" "}
+                  {new Date(run.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </div>
+                <div className="flex-1 text-xs truncate" style={{ color: "#a1a1aa" }}>
+                  {run.taskName}
+                </div>
+                <div className="text-[10px] shrink-0" style={{ color: "#52525b" }}>
+                  {(run.tokens / 1000).toFixed(1)}k tok
+                </div>
+                <div className="text-[10px] shrink-0" style={{ color: "#52525b" }}>
+                  ${run.cost.toFixed(2)}
+                </div>
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0"
+                  style={{
+                    color: run.status === "success" ? "#22c55e" : "#ef4444",
+                    background: run.status === "success" ? "#0a1a0a" : "#1a0a0a",
+                  }}
+                >
+                  {run.status === "success" ? "Success" : "Error"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </div>
   );
