@@ -38,7 +38,7 @@ export default function PipelineChatMessage({ msg }: Props) {
         className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-1"
         style={
           isUser
-            ? { background: "#f59e0b", color: "#0a0a0a" }
+            ? { background: "#1e3a5f", color: "#fff" }
             : { background: msg.agentColor ?? "#3b82f6", color: "#fff" }
         }
       >
@@ -55,7 +55,7 @@ export default function PipelineChatMessage({ msg }: Props) {
           className="px-4 py-3 text-sm leading-relaxed markdown-body"
           style={
             isUser
-              ? { background: "#f59e0b", color: "#0a0a0a", borderRadius: "18px 4px 18px 18px" }
+              ? { background: "#1e3a5f", color: "#f5f5f5", borderRadius: "18px 4px 18px 18px" }
               : { background: "#1a1a1a", color: "#f5f5f5", border: "1px solid #1f1f1f", borderRadius: "4px 18px 18px 18px" }
           }
         >
