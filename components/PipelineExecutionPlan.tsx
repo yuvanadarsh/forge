@@ -1,6 +1,7 @@
 "use client";
 
 import ReactMarkdown from "react-markdown";
+import rehypeHighlight from "rehype-highlight";
 
 interface Props {
   planMd: string;
@@ -31,7 +32,7 @@ export default function PipelineExecutionPlan({ planMd, collapsed, onToggle }: P
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {planMd ? (
             <div className="text-xs leading-relaxed markdown-body" style={{ color: "#a1a1aa" }}>
-              <ReactMarkdown>{planMd}</ReactMarkdown>
+              <ReactMarkdown rehypePlugins={[rehypeHighlight]}>{planMd}</ReactMarkdown>
             </div>
           ) : (
             <p className="text-xs" style={{ color: "#3f3f46" }}>No execution plan yet.</p>
