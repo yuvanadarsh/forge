@@ -7,7 +7,6 @@ import {
   YAxis,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 
 export type Metric = "input_tokens" | "output_tokens" | "cost";
@@ -85,33 +84,40 @@ export default function CostAnalyticsChart({ data, series, metric }: Props) {
   );
 
   return (
-    <ResponsiveContainer width="100%" height={220}>
-      <BarChart data={data} barCategoryGap="25%" barGap={2} margin={{ top: 4, right: 4, left: 4, bottom: 16 }}>
-        <XAxis
-          dataKey="label"
-          tick={{ fontSize: 10, fill: "#3f3f46" }}
-          axisLine={false}
-          tickLine={false}
-        />
-        <YAxis hide />
-        <Tooltip
-          content={
-            <TooltipContent
-              metric={metric}
-              total={total}
-            />
-          }
-          cursor={{ fill: "rgba(255,255,255,0.03)" }}
-        />
-        <Legend
-          wrapperStyle={{ fontSize: 10, color: "#71717a", paddingTop: 8 }}
-          iconType="square"
-          iconSize={8}
-        />
+    <div>
+      {/* Legend above chart */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 mb-3">
         {series.map((s) => (
-          <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} radius={[3, 3, 0, 0]} maxBarSize={20} />
+          <span key={s.key} className="flex items-center gap-1.5 text-[10px]" style={{ color: "#71717a" }}>
+            <span className="inline-block w-2 h-2 rounded-sm shrink-0" style={{ background: s.color }} />
+            {s.label}
+          </span>
         ))}
-      </BarChart>
-    </ResponsiveContainer>
+      </div>
+
+      <ResponsiveContainer width="100%" height={200}>
+        <BarChart data={data} barCategoryGap="25%" barGap={2} margin={{ top: 4, right: 4, left: 4, bottom: 4 }}>
+          <XAxis
+            dataKey="label"
+            tick={{ fontSize: 10, fill: "#3f3f46" }}
+            axisLine={false}
+            tickLine={false}
+          />
+          <YAxis hide />
+          <Tooltip
+            content={
+              <TooltipContent
+                metric={metric}
+                total={total}
+              />
+            }
+            cursor={{ fill: "rgba(255,255,255,0.03)" }}
+          />
+          {series.map((s) => (
+            <Bar key={s.key} dataKey={s.key} name={s.label} fill={s.color} radius={[3, 3, 0, 0]} maxBarSize={20} />
+          ))}
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
