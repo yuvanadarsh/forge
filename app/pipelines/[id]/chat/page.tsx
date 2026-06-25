@@ -5,6 +5,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { mockPipelines, mockAgents } from "@/lib/mock-data";
 import PipelineChatMessage, { type PipelineChatMsg } from "@/components/PipelineChatMessage";
+import ApprovalGateCard from "@/components/ApprovalGateCard";
 import PipelineChatInput from "@/components/PipelineChatInput";
 import PipelineParticipants from "@/components/PipelineParticipants";
 import PipelineExecutionPlan from "@/components/PipelineExecutionPlan";
@@ -27,7 +28,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
     .filter((a): a is NonNullable<typeof a> => Boolean(a));
 
   const agentsByRole = Object.fromEntries(
-    participants.map((a) => [a.role, { name: a.name, color: a.avatar_color }])
+    participants.map((a) => [a.role, { name: a.name, color: a.avatar_color, id: a.id }])
   );
 
   const [messages, setMessages] = useState<PipelineChatMsg[]>(() => makeMockMessages(agentsByRole));
@@ -91,9 +92,17 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-          {messages.map((msg) => (
-            <PipelineChatMessage key={msg.id} msg={msg} />
-          ))}
+          {messages.map((msg) =>
+            msg.type === "approval_gate" ? (
+              <ApprovalGateCard
+                key={msg.id}
+                summary={msg.approvalSummary ?? ""}
+                whatNext={msg.approvalWhatNext ?? ""}
+              />
+            ) : (
+              <PipelineChatMessage key={msg.id} msg={msg} participants={participants} />
+            )
+          )}
           <div ref={bottomRef} />
         </div>
 
