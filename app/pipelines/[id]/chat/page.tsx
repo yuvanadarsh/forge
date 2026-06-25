@@ -98,7 +98,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         </div>
 
         {/* Input */}
-        <PipelineChatInput value={input} onChange={setInput} onSend={handleSend} />
+        <PipelineChatInput value={input} onChange={setInput} onSend={handleSend} participants={participants} />
       </div>
 
       {/* Right panel — participants */}
