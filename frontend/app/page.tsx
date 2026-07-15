@@ -8,8 +8,10 @@ import CreateTaskModal from "@/components/CreateTaskModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
 import TaskSlideOver from "@/components/TaskSlideOver";
 import CostAnalyticsGraph from "@/components/CostAnalyticsGraph";
-import { mockAgents, mockTasks } from "@/lib/mock-data";
-import type { BackendAgent, Task } from "@/types";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { updateTask } from "@/lib/api";
+import { useForge } from "@/lib/store";
+import type { BackendAgent, BackendTask, Task } from "@/types";
 
 const COLUMNS: { key: Task["status"]; label: string }[] = [
   { key: "backlog", label: "Backlog" },
@@ -19,16 +21,17 @@ const COLUMNS: { key: Task["status"]; label: string }[] = [
 ];
 
 export default function DashboardPage() {
-  const [toast, setToast] = useState(false);
-  const [tasks, setTasks] = useState(mockTasks);
-  const [agents, setAgents] = useState(mockAgents);
+  const { state, dispatch } = useForge();
+  const [toast, setToast] = useState<string | null>(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [modalStatus, setModalStatus] = useState<Task["status"]>("backlog");
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTask, setSelectedTask] = useState<BackendTask | null>(null);
 
-  function getAgent(id: string) {
-    return agents.find((a) => a.id === id);
+  const { agents, tasks, loading } = state;
+
+  function getAgent(id: string | null) {
+    return id ? agents.find((a) => a.id === id) : undefined;
   }
 
   function getCurrentTask(agentId: string) {
@@ -36,13 +39,26 @@ export default function DashboardPage() {
   }
 
   function handleCreateAgent(agent: BackendAgent) {
-    setAgents((prev) => [...prev, { ...agent, last_active: agent.last_active ?? agent.created_at }]);
+    dispatch({ type: "ADD_AGENT", agent });
     setShowAgentModal(false);
+    setToast(`Agent "${agent.name}" created`);
   }
 
-  function handleMoveTask(taskId: string, status: Task["status"]) {
-    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status } : t));
-    if (selectedTask?.id === taskId) setSelectedTask((t) => t ? { ...t, status } : null);
+  async function handleMoveTask(task: BackendTask, status: Task["status"]) {
+    const previous = task;
+    const optimistic = { ...task, status };
+    // Optimistic: move the card immediately, revert if the PATCH fails.
+    dispatch({ type: "UPDATE_TASK", task: optimistic });
+    if (selectedTask?.id === task.id) setSelectedTask(optimistic);
+    try {
+      const updated = await updateTask(task.id, { status });
+      dispatch({ type: "UPDATE_TASK", task: updated });
+      if (selectedTask?.id === task.id) setSelectedTask(updated);
+    } catch (err) {
+      dispatch({ type: "UPDATE_TASK", task: previous });
+      if (selectedTask?.id === task.id) setSelectedTask(previous);
+      setToast(`Failed to move task: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   }
 
   function openTaskModal(status: Task["status"]) {
@@ -96,15 +112,31 @@ export default function DashboardPage() {
         <h2 className="text-sm font-semibold uppercase tracking-wider mb-4" style={{ color: "#71717a" }}>
           Agents
         </h2>
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
-          {agents.map((agent) => (
-            <AgentCard
-              key={agent.id}
-              agent={agent}
-              currentTask={getCurrentTask(agent.id)}
-            />
-          ))}
-        </div>
+        {loading.agents ? (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
+            <LoadingSkeleton variant="card" count={4} />
+          </div>
+        ) : agents.length === 0 ? (
+          <div
+            className="rounded-xl border flex flex-col items-center justify-center py-12 text-center"
+            style={{ background: "#111111", borderColor: "#1f1f1f" }}
+          >
+            <div className="text-sm font-medium" style={{ color: "#f5f5f5" }}>No agents yet.</div>
+            <div className="text-sm mt-1" style={{ color: "#71717a" }}>
+              Create your first agent to get started.
+            </div>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
+            {agents.map((agent) => (
+              <AgentCard
+                key={agent.id}
+                agent={agent}
+                currentTask={getCurrentTask(agent.id)}
+              />
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Analytics */}
@@ -148,16 +180,20 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-2 min-h-[120px]">
-                  {colTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      agent={getAgent(task.assigned_to)}
-                      onRun={() => setToast(true)}
-                      onClick={() => setSelectedTask(task)}
-                      onMove={(status) => handleMoveTask(task.id, status)}
-                    />
-                  ))}
+                  {loading.tasks ? (
+                    <LoadingSkeleton variant="row" count={2} />
+                  ) : (
+                    colTasks.map((task) => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        agent={getAgent(task.assigned_to)}
+                        onRun={() => setToast("Coming soon — agent execution not yet wired.")}
+                        onClick={() => setSelectedTask(task)}
+                        onMove={(status) => handleMoveTask(task, status)}
+                      />
+                    ))
+                  )}
                 </div>
               </div>
             );
@@ -170,14 +206,20 @@ export default function DashboardPage() {
           initialStatus={modalStatus}
           onClose={() => setShowTaskModal(false)}
           onCreate={(task) => {
-            setTasks((prev) => [...prev, task]);
+            dispatch({ type: "ADD_TASK", task });
             setShowTaskModal(false);
+            setToast(`Task "${task.title}" created`);
           }}
+          onError={(message) => setToast(`Could not create task: ${message}`)}
         />
       )}
 
       {showAgentModal && (
-        <CreateAgentModal onClose={() => setShowAgentModal(false)} onCreate={handleCreateAgent} />
+        <CreateAgentModal
+          onClose={() => setShowAgentModal(false)}
+          onCreate={handleCreateAgent}
+          onError={(message) => setToast(`Could not create agent: ${message}`)}
+        />
       )}
 
       {selectedTask && (
@@ -188,7 +230,7 @@ export default function DashboardPage() {
         />
       )}
 
-      {toast && <Toast message="Coming soon — agent execution not yet wired." onClose={() => setToast(false)} />}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

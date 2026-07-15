@@ -104,7 +104,7 @@ export default function TasksPage() {
           initialStatus={initialStatus}
           onClose={() => setShowModal(false)}
           onCreate={(task) => {
-            setTasks((prev) => [...prev, task]);
+            setTasks((prev) => [...prev, { ...task, assigned_to: task.assigned_to ?? "" }]);
             setShowModal(false);
           }}
         />

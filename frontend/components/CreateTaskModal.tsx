@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { mockAgents } from "@/lib/mock-data";
-import type { Task } from "@/types";
+import { createTask } from "@/lib/api";
+import { useForge } from "@/lib/store";
+import type { BackendTask, Task } from "@/types";
 
 const PRIORITIES: { value: Task["priority"]; label: string; color: string }[] = [
   { value: "low", label: "Low", color: "#71717a" },
@@ -14,29 +15,39 @@ const PRIORITIES: { value: Task["priority"]; label: string; color: string }[] = 
 interface Props {
   initialStatus?: Task["status"];
   onClose: () => void;
-  onCreate: (task: Task) => void;
+  /** Called with the persisted task after a successful POST. */
+  onCreate: (task: BackendTask) => void;
+  /** Called with the API error message; the modal stays open. */
+  onError?: (message: string) => void;
 }
 
-export default function CreateTaskModal({ initialStatus = "backlog", onClose, onCreate }: Props) {
+export default function CreateTaskModal({ onClose, onCreate, onError }: Props) {
+  const { state } = useForge();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [assignedTo, setAssignedTo] = useState("");
   const [priority, setPriority] = useState<Task["priority"]>("med");
-  const [status, setStatus] = useState<Task["status"]>(initialStatus);
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleCreate(chosenStatus: Task["status"]) {
-    const task: Task = {
-      id: `task-${Date.now()}`,
-      title,
-      description,
-      assigned_to: assignedTo,
-      priority,
-      status: chosenStatus,
-      pipeline_id: null,
-      created_from_chat: false,
-      created_at: new Date().toISOString(),
-    };
-    onCreate(task);
+  const agents = state.agents;
+
+  async function handleCreate(chosenStatus: Task["status"]) {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const task = await createTask({
+        title: title.trim(),
+        description,
+        assigned_to: assignedTo || undefined,
+        priority,
+        status: chosenStatus,
+      });
+      onCreate(task);
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : "Failed to create task");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -97,7 +108,12 @@ export default function CreateTaskModal({ initialStatus = "backlog", onClose, on
           <div>
             <label className="text-xs font-medium block mb-2" style={{ color: "#71717a" }}>Assign To</label>
             <div className="grid grid-cols-4 gap-2">
-              {mockAgents.map((agent) => {
+              {agents.length === 0 && (
+                <p className="col-span-4 text-xs" style={{ color: "#3f3f46" }}>
+                  No agents yet — the task will be unassigned.
+                </p>
+              )}
+              {agents.map((agent) => {
                 const selected = assignedTo === agent.id;
                 return (
                   <button
@@ -158,19 +174,19 @@ export default function CreateTaskModal({ initialStatus = "backlog", onClose, on
           </button>
           <button
             onClick={() => handleCreate("backlog")}
-            disabled={!title.trim()}
+            disabled={!title.trim() || submitting}
             className="px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150"
-            style={{ background: title.trim() ? "#1f1f1f" : "#161616", color: title.trim() ? "#f5f5f5" : "#3f3f46", border: "1px solid #2a2a2a" }}
+            style={{ background: title.trim() && !submitting ? "#1f1f1f" : "#161616", color: title.trim() && !submitting ? "#f5f5f5" : "#3f3f46", border: "1px solid #2a2a2a" }}
           >
             Add to Backlog
           </button>
           <button
             onClick={() => handleCreate("in_progress")}
-            disabled={!title.trim()}
+            disabled={!title.trim() || submitting}
             className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
-            style={{ background: title.trim() ? "#f59e0b" : "#2a2a2a", color: title.trim() ? "#0a0a0a" : "#3f3f46" }}
+            style={{ background: title.trim() && !submitting ? "#f59e0b" : "#2a2a2a", color: title.trim() && !submitting ? "#0a0a0a" : "#3f3f46" }}
           >
-            Start Now
+            {submitting ? "Creating…" : "Start Now"}
           </button>
         </div>
       </div>
