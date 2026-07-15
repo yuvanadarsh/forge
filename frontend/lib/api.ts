@@ -165,6 +165,8 @@ export const sendMessage = (conversationId: string, content: string) =>
   post<SendMessageResult>(`/api/conversations/${conversationId}/messages`, { content });
 export const deleteConversation = (conversationId: string) =>
   del(`/api/conversations/${conversationId}`);
+export const updateConversation = (conversationId: string, title: string) =>
+  patch<BackendConversation>(`/api/conversations/${conversationId}`, { title });
 
 // ---------------------------------------------------------------- notifications
 

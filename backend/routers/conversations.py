@@ -41,6 +41,10 @@ class ConversationOut(BaseModel):
     created_at: datetime
 
 
+class ConversationUpdate(BaseModel):
+    title: str = Field(min_length=1)
+
+
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1)
 
@@ -173,6 +177,17 @@ async def add_user_message(
             logger.exception("chat_reply failed for conversation %s", conversation_id)
             error = f"Agent reply failed: {exc}"
     return SendMessageOut(user_message=user_out, assistant_message=assistant_out, error=error)
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def update_conversation(
+    conversation_id: uuid.UUID, body: ConversationUpdate, db: AsyncSession = Depends(get_db)
+) -> Conversation:
+    conversation = await _get_conversation_or_404(conversation_id, db)
+    conversation.title = body.title
+    await db.commit()
+    await db.refresh(conversation)
+    return conversation
 
 
 @router.delete("/{conversation_id}", status_code=204)

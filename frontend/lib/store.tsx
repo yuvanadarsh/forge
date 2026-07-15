@@ -51,6 +51,8 @@ export type ForgeAction =
   | { type: "SET_TASKS"; tasks: BackendTask[] }
   | { type: "SET_PIPELINES"; pipelines: BackendPipeline[] }
   | { type: "SET_CONVERSATIONS"; conversations: BackendConversation[] }
+  | { type: "UPDATE_CONVERSATION"; conversation: BackendConversation }
+  | { type: "DELETE_CONVERSATION"; conversationId: string }
   | { type: "SET_NOTIFICATIONS"; notifications: NotificationItem[] }
   | { type: "SET_SETTINGS"; settings: ForgeSettings }
   | { type: "ADD_AGENT"; agent: BackendAgent }
@@ -87,6 +89,18 @@ function forgeReducer(state: ForgeState, action: ForgeAction): ForgeState {
       return { ...state, pipelines: action.pipelines };
     case "SET_CONVERSATIONS":
       return { ...state, conversations: action.conversations };
+    case "UPDATE_CONVERSATION":
+      return {
+        ...state,
+        conversations: state.conversations.map((c) =>
+          c.id === action.conversation.id ? action.conversation : c,
+        ),
+      };
+    case "DELETE_CONVERSATION":
+      return {
+        ...state,
+        conversations: state.conversations.filter((c) => c.id !== action.conversationId),
+      };
     case "SET_NOTIFICATIONS":
       return { ...state, notifications: action.notifications };
     case "SET_SETTINGS":
