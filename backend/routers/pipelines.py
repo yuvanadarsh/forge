@@ -94,6 +94,9 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
         settings = (await db.execute(select(Settings))).scalar_one_or_none()
         root = settings.workspace_root if settings else "~/forge-workspace"
         workspace_path = os.path.join(os.path.expanduser(root), _slug(body.title))
+    else:
+        workspace_path = os.path.expanduser(workspace_path)
+    os.makedirs(workspace_path, exist_ok=True)
 
     pipeline = Pipeline(
         title=body.title,
