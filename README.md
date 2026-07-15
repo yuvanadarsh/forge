@@ -87,11 +87,23 @@
 - [x] **Loading / error / empty states** — shared `LoadingSkeleton`, `ErrorState`, `EmptyState` components + dismissible global error banner
 - [x] **Notifications live** — 30s polling, unread badge, mark-read / mark-all-read
 
+### Phase 2.6 — Chat & Agent Improvements ✅
+
+- [x] **Task-linked conversations** — "+ General Chat" on the agent page offers an
+      optional "Link to a task" picker when the agent has tasks; task_id is set at
+      creation time so it shows up under Task Conversations
+- [x] **Workspace folder selector** — pipeline creation offers "New project"
+      (`~/forge-workspace/{title}/`) or an existing folder path; shown on the
+      pipeline card and pipeline chat header
+- [x] **View Conversation from a task** — the task slide-over looks up the
+      conversation linked to the task and links to it, or shows "No conversation yet"
+- [x] **Delete / rename conversations** — a shared "⋯" menu on the agent chat header
+      and each `/chat` row offers Delete (confirmation dialog) and Rename (inline edit)
+
 ### Phase 3 — Real Agent Execution & Pipeline Testing ⬜ (next session)
 
 - [ ] End-to-end pipeline runs with a real Anthropic key (streamed tokens, live gates)
 - [ ] Task "Run →" button triggers agent execution
-- [ ] Pipeline creation UI
 
 ### Phase 4 — Hardening ⬜
 
