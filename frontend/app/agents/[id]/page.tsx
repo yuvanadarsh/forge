@@ -65,6 +65,9 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [runHistoryOpen, setRunHistoryOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [taskPickerOpen, setTaskPickerOpen] = useState(false);
+  const [taskPickerValue, setTaskPickerValue] = useState<string>("");
+  const [creatingChat, setCreatingChat] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -120,6 +123,25 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
   const taskConvos = conversations.filter((c) => c.task_id !== null);
   const getTask = (taskId: string | null) => state.tasks.find((t) => t.id === taskId);
+  const agentTasks = state.tasks.filter((t) => t.assigned_to === id);
+
+  async function startGeneralChat(taskId: string | null) {
+    if (creatingChat) return;
+    setCreatingChat(true);
+    try {
+      const created = await createConversation({
+        title: "General Chat",
+        agent_id: id,
+        task_id: taskId ?? undefined,
+      });
+      setTaskPickerOpen(false);
+      router.push(`/agents/${id}/conversations/${created.id}`);
+    } catch (err) {
+      setToast(`Could not start chat: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setCreatingChat(false);
+    }
+  }
 
   const statusColor =
     { idle: "#71717a", working: "#22c55e", error: "#ef4444" }[agent.status] ?? "#71717a";
@@ -271,22 +293,64 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#71717a" }}>
             Task Conversations
           </h2>
-          <button
-            onClick={async () => {
-              try {
-                const created = await createConversation({ title: "General Chat", agent_id: id });
-                router.push(`/agents/${id}/conversations/${created.id}`);
-              } catch (err) {
-                setToast(
-                  `Could not start chat: ${err instanceof Error ? err.message : "unknown error"}`,
-                );
-              }
-            }}
-            className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
-            style={{ background: "#1f1f1f", color: "#f59e0b" }}
-          >
-            + General Chat
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => {
+                if (agentTasks.length > 0) {
+                  setTaskPickerValue("");
+                  setTaskPickerOpen((v) => !v);
+                } else {
+                  startGeneralChat(null);
+                }
+              }}
+              disabled={creatingChat}
+              className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
+              style={{ background: "#1f1f1f", color: "#f59e0b" }}
+            >
+              {creatingChat ? "Starting…" : "+ General Chat"}
+            </button>
+
+            {taskPickerOpen && (
+              <div
+                className="absolute right-0 mt-2 w-64 rounded-xl border shadow-2xl z-10 p-3"
+                style={{ background: "#161616", borderColor: "#1f1f1f" }}
+              >
+                <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
+                  Link to a task (optional)
+                </label>
+                <select
+                  value={taskPickerValue}
+                  onChange={(e) => setTaskPickerValue(e.target.value)}
+                  className="w-full px-2.5 py-2 rounded-lg text-xs outline-none border mb-3"
+                  style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
+                >
+                  <option value="">No task (general)</option>
+                  {agentTasks.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.title}
+                    </option>
+                  ))}
+                </select>
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setTaskPickerOpen(false)}
+                    className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
+                    style={{ background: "#1f1f1f", color: "#71717a" }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => startGeneralChat(taskPickerValue || null)}
+                    disabled={creatingChat}
+                    className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors duration-150"
+                    style={{ background: "#f59e0b", color: "#0a0a0a" }}
+                  >
+                    {creatingChat ? "Starting…" : "Start"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {taskConvos.length === 0 && (

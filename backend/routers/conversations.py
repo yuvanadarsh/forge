@@ -87,6 +87,7 @@ async def _get_conversation_or_404(conversation_id: uuid.UUID, db: AsyncSession)
 async def list_conversations(
     agent_id: uuid.UUID | None = Query(default=None),
     pipeline_id: uuid.UUID | None = Query(default=None),
+    task_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[Conversation]:
     query = select(Conversation).order_by(
@@ -96,6 +97,8 @@ async def list_conversations(
         query = query.where(Conversation.agent_id == agent_id)
     if pipeline_id is not None:
         query = query.where(Conversation.pipeline_id == pipeline_id)
+    if task_id is not None:
+        query = query.where(Conversation.task_id == task_id)
     rows = await db.execute(query)
     return list(rows.scalars().all())
 

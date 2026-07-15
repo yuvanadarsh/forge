@@ -154,8 +154,9 @@ export const deleteTask = (taskId: string) => del(`/api/tasks/${taskId}`);
 
 // ---------------------------------------------------------------- conversations
 
-export const listConversations = (filters: { agent_id?: string; pipeline_id?: string } = {}) =>
-  get<BackendConversation[]>(`/api/conversations${query(filters)}`);
+export const listConversations = (
+  filters: { agent_id?: string; pipeline_id?: string; task_id?: string } = {},
+) => get<BackendConversation[]>(`/api/conversations${query(filters)}`);
 export const createConversation = (payload: ConversationCreatePayload) =>
   post<BackendConversation>("/api/conversations", payload);
 export const listMessages = (conversationId: string, page = 1) =>
