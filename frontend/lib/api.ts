@@ -4,6 +4,7 @@
 
 import type {
   AgentCreatePayload,
+  AgentRun,
   AgentUpdatePayload,
   ApiKeyCreatePayload,
   ApiKeyInfo,
@@ -16,8 +17,11 @@ import type {
   BackendPipelineDetail,
   BackendTask,
   ConversationCreatePayload,
+  CostAnalyticsInterval,
+  CostAnalyticsResponse,
   ForgeSettings,
   ForgeSettingsUpdate,
+  KeyTestResult,
   MessagePage,
   NotificationItem,
   PipelineCreatePayload,
@@ -26,6 +30,8 @@ import type {
   TaskCreatePayload,
   TaskListFilters,
   TaskUpdatePayload,
+  TokenUsageInterval,
+  TokenUsageSeries,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -94,6 +100,8 @@ export const getAgent = (agentId: string) =>
 export const updateAgent = (agentId: string, payload: AgentUpdatePayload) =>
   patch<BackendAgent>(`/api/agents/${agentId}`, payload);
 export const deleteAgent = (agentId: string) => del(`/api/agents/${agentId}`);
+export const listAgentRuns = (agentId: string) =>
+  get<AgentRun[]>(`/api/agents/${agentId}/runs`);
 
 // ---------------------------------------------------------------- settings
 
@@ -107,6 +115,17 @@ export const addApiKey = (payload: ApiKeyCreatePayload) =>
 export const updateApiKey = (keyId: string, payload: ApiKeyUpdatePayload) =>
   patch<ApiKeyInfo>(`/api/settings/api-keys/${keyId}`, payload);
 export const deleteApiKey = (keyId: string) => del(`/api/settings/api-keys/${keyId}`);
+export const testApiKey = (keyId: string) =>
+  post<KeyTestResult>(`/api/settings/api-keys/${keyId}/test`);
+export const reembedAllData = () => post<{ status: string }>("/api/settings/reembed");
+
+// ---------------------------------------------------------------- analytics
+
+export const getTokenUsage = (params: { agent_id?: string; interval?: TokenUsageInterval } = {}) =>
+  get<TokenUsageSeries>(`/api/token-usage${query({ ...params })}`);
+export const getCostAnalytics = (
+  params: { interval?: CostAnalyticsInterval; providers?: string } = {},
+) => get<CostAnalyticsResponse>(`/api/analytics/cost${query({ ...params })}`);
 
 // ---------------------------------------------------------------- pipelines
 

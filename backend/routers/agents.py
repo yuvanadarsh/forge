@@ -65,6 +65,17 @@ class AgentDetailOut(AgentOut):
     usage: UsageSummary
 
 
+class AgentRunOut(BaseModel):
+    id: uuid.UUID
+    pipeline_id: uuid.UUID
+    pipeline_title: str
+    status: str
+    current_agent_index: int
+    error: str | None
+    started_at: datetime
+    completed_at: datetime | None
+
+
 def _agent_out(agent: Agent, tokens: int | None, cost: float | None) -> AgentOut:
     out = AgentOut.model_validate(agent)
     out.tokens_used = int(tokens or 0)
@@ -151,6 +162,34 @@ async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> 
         ),
     )
     return out
+
+
+@router.get("/{agent_id}/runs", response_model=list[AgentRunOut])
+async def list_agent_runs(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[AgentRunOut]:
+    """Runs of every pipeline whose agent_sequence includes this agent, newest first."""
+    await _get_agent_or_404(agent_id, db)
+    rows = await db.execute(
+        select(PipelineRun, Pipeline.title)
+        .join(Pipeline, PipelineRun.pipeline_id == Pipeline.id)
+        .where(Pipeline.agent_sequence.contains([agent_id]))
+        .order_by(PipelineRun.started_at.desc())
+        .limit(50)
+    )
+    return [
+        AgentRunOut(
+            id=run.id,
+            pipeline_id=run.pipeline_id,
+            pipeline_title=title,
+            status=run.status,
+            current_agent_index=run.current_agent_index,
+            error=run.error,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+        )
+        for run, title in rows.all()
+    ]
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)

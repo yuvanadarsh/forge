@@ -15,6 +15,7 @@ load_dotenv()
 from db.connection import dispose_engine, init_engine  # noqa: E402
 from routers import (  # noqa: E402
     agents,
+    analytics,
     conversations,
     notifications,
     pipelines,
@@ -50,6 +51,7 @@ app.include_router(tasks.router, prefix="/api")
 app.include_router(conversations.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
+app.include_router(analytics.router, prefix="/api")
 
 
 @app.get("/health")

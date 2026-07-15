@@ -251,6 +251,55 @@ export interface ApiKeyCreatePayload {
 
 export type ApiKeyUpdatePayload = Partial<Pick<ApiKeyCreatePayload, "name" | "base_url" | "api_key">>;
 
+export type TokenUsageInterval = "day" | "week" | "month" | "all";
+export type CostAnalyticsInterval = "day" | "week" | "month" | "year" | "all";
+
+export interface TokenUsagePoint {
+  bucket: string; // ISO-8601 bucket start
+  tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+}
+
+export interface TokenUsageSeries {
+  interval: string;
+  points: TokenUsagePoint[];
+}
+
+export interface CostAnalyticsModelSlice {
+  provider: string;
+  model: string;
+  cost: number;
+  input_tokens: number;
+  output_tokens: number;
+}
+
+export interface CostAnalyticsBucket {
+  label: string; // ISO-8601 bucket start
+  models: CostAnalyticsModelSlice[];
+}
+
+export interface CostAnalyticsResponse {
+  buckets: CostAnalyticsBucket[];
+}
+
+export interface AgentRun {
+  id: string;
+  pipeline_id: string;
+  pipeline_title: string;
+  status: PipelineRun["status"];
+  current_agent_index: number;
+  error: string | null;
+  started_at: string;
+  completed_at: string | null;
+}
+
+export interface KeyTestResult {
+  success: boolean;
+  message: string;
+}
+
 // WebSocket envelope pushed on /ws/pipeline/{runId}
 export type PipelineEventType =
   | "token"
