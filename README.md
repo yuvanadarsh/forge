@@ -195,6 +195,18 @@ Docker Desktop must be running.
 API health check: [http://localhost:8000/health](http://localhost:8000/health)
 API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
+### Port Conflicts
+If ports 8000 or 3000 are already in use by another project,
+add these to your `.env` file before running:
+
+```
+BACKEND_PORT=8001   # or any free port
+FRONTEND_PORT=3001  # or any free port
+```
+
+Then run `docker compose up --build` as normal.
+No code changes needed.
+
 ---
 
 ## Project Structure
