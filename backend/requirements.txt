@@ -1,0 +1,14 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+sqlalchemy[asyncio]==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+langgraph==0.2.55
+anthropic==0.40.0
+voyageai==0.3.2
+cryptography==43.0.3
+python-dotenv==1.0.1
+pydantic==2.10.0
+pydantic-settings==2.6.1
+websockets==13.1
+pgvector==0.3.6

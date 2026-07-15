@@ -4,6 +4,11 @@
 # env files (root .env feeds docker-compose; never commit it)
 .env
 
+# Python (backend)
+__pycache__/
+*.pyc
+.venv/
+
 # graphify
 graphify-out/cache/
 graphify-out/manifest.json
