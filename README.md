@@ -48,6 +48,16 @@
 - [x] **Dynamic API Key Vault** — User-managed provider list in settings with add/edit/delete (Anthropic is default and cannot be deleted)
 - [x] **Agent Stat Cards** — Lifetime cost, this-month cost, and avg-per-day cards above the token usage graph on agent detail page
 
+### Phase 1.9 — Final Mock Features ✅
+
+- [x] **Analytics legend above chart** — Legend moved above the bar chart between filter chips and bars, eliminating label collision
+- [x] **Discord-style @mention picker** — Pipeline chat input shows a floating agent picker filtered by name when user types `@`; arrow keys + Enter to select
+- [x] **Execution plan markdown** — `PipelineExecutionPlan` uses `remark-gfm` for `[ ]` checkboxes (rendered as disabled inputs), bold text, and sized headers
+- [x] **Approval gate UI** — `ApprovalGateCard` appears inline in pipeline chat between phases; supports Approve → (green confirmation) and Request Changes (feedback textarea)
+- [x] **Agent-to-agent messages** — `relay_to_agent_name` field on `PipelineChatMsg` renders a "→ AgentName" relay indicator under the avatar and in the name row
+- [x] **Notification bell** — Amber badge on sidebar showing unread count; dropdown with color-coded activity feed; "Mark all read" clears badge
+- [x] **Agent run history** — Collapsible "RUN HISTORY" section on `/agents/[id]` with timestamp, task name, token/cost stats, success/error badge; error rows have red left border
+
 ### Phase 2 — Backend Integration ⬜
 
 - [ ] Supabase database schema and migrations
@@ -76,7 +86,7 @@
 | Styling | Tailwind CSS v4 |
 | Font | Geist (via `next/font/google`) |
 | Charts | recharts |
-| Markdown | react-markdown + rehype-highlight + highlight.js |
+| Markdown | react-markdown + rehype-highlight + remark-gfm + highlight.js |
 | State | React `useState` (mock phase) |
 | Data | Static mock data in `lib/mock-data.ts` |
 

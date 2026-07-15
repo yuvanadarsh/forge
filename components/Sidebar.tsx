@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import NotificationBell from "@/components/NotificationBell";
 
 const navItems = [
   {
@@ -113,6 +114,13 @@ export default function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Notification bell */}
+      <div className="px-3 py-3 border-t" style={{ borderColor: "#1f1f1f" }}>
+        <div className="px-3">
+          <NotificationBell />
+        </div>
+      </div>
 
       {/* Settings */}
       <div className="px-3 py-4 border-t" style={{ borderColor: "#1f1f1f" }}>

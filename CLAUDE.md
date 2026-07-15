@@ -350,3 +350,44 @@ Dashboard analytics graph uses:
 - Two controlled dropdowns: Metric (Input Tokens / Output Tokens / Cost) and Timeline (Day/Week/Month/Year/All Time)
 - Recharts `BarChart` with `ResponsiveContainer` and a `CustomTooltip` showing model name, value, % of total
 - Mock data in `lib/analytics-mock-data.ts` uses deterministic `Math.sin`-based generation per model
+
+---
+
+## Session 4 Decisions (2026-06-25)
+
+### New dependencies added
+- `remark-gfm` — GFM (GitHub Flavored Markdown) support for checkboxes, tables, strikethrough in execution plan and chat
+
+### New components created
+```
+components/
+  ApprovalGateCard.tsx      — Approval gate card with ⏸ icon, approve/request-changes flow, feedback textarea
+  NotificationBell.tsx      — Bell icon with amber badge count and dropdown showing activity feed (5-6 mock notifications)
+```
+
+### analytics legend position fix
+Recharts `Legend` was moved out of `BarChart` entirely. A custom flex legend is now rendered above `ResponsiveContainer` using the `series` array. This prevents any collision between legend labels and chart bars regardless of model count.
+
+### @mention agent picker (Discord-style)
+`PipelineChatInput` now accepts a `participants: Agent[]` prop. When the user types `@` the component detects the current mention query (text after last `@` with no space) and renders a floating panel above the input. Arrow keys navigate the list, Enter/click inserts `@AgentName `. Space or deleting `@` dismisses. Picker filters by `name.toLowerCase().startsWith(query)`.
+
+### Execution plan markdown
+`PipelineExecutionPlan` now uses `remarkGfm` in addition to `rehypeHighlight`. Custom components are passed for `h1`, `h2`, `h3`, `strong`, `li`, `ul`, and `input` (checkboxes). `[ ]` tasks render as disabled checkbox elements styled with `accentColor: "#f59e0b"`.
+
+### Approval gate pattern
+`PipelineChatMsg` has an optional `type: "approval_gate"` variant. When `type === "approval_gate"`, the pipeline chat page renders `<ApprovalGateCard>` instead of `<PipelineChatMessage>`. The card uses `border-l-4` in amber (pending) or green (approved) and has three states: pending → approved (shows ✓ confirmation) or pending → changes (reveals feedback textarea).
+
+### Agent-to-agent message type
+`PipelineChatMsg` now has:
+- `sender_agent_id?: string` — the agent who sent the message (used for future routing)
+- `relay_to_agent_name?: string` — the target agent's name (renders a "→ AgentName" tag under the avatar and in the agent name row)
+
+`Message` type in `types/index.ts` also has `sender_agent_id?: string`.
+
+Relay messages render with a subtle amber-tinted border and a "→ AgentName" chip next to the sender name.
+
+### Notification bell
+`NotificationBell` is a self-contained component with local state for notifications. It attaches a `mousedown` listener to close on outside click. Each notification row: icon (colored), text, timestamp, unread dot. "Mark all read" clears all dots. Clicking a notification marks it read and navigates via `useRouter`. Bell is mounted in `Sidebar` above the Settings link.
+
+### Agent run history
+`/agents/[id]` page has a new "RUN HISTORY" section below Task Conversations. It is collapsed by default (`runHistoryOpen` state, false). Expanding shows last 5 mock runs in a row layout: date/time, task name, token count, cost, success/error badge. Error rows have `border-left: 3px solid #ef4444`.
