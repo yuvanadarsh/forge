@@ -74,6 +74,8 @@ class AgentRunOut(BaseModel):
     error: str | None
     started_at: datetime
     completed_at: datetime | None
+    tokens: int = 0  # this agent's usage within the run
+    cost_usd: float = 0.0
 
 
 def _agent_out(agent: Agent, tokens: int | None, cost: float | None) -> AgentOut:
@@ -170,9 +172,20 @@ async def list_agent_runs(
 ) -> list[AgentRunOut]:
     """Runs of every pipeline whose agent_sequence includes this agent, newest first."""
     await _get_agent_or_404(agent_id, db)
+    usage = (
+        select(
+            TokenUsage.pipeline_run_id,
+            func.sum(TokenUsage.input_tokens + TokenUsage.output_tokens).label("tokens"),
+            func.sum(TokenUsage.cost_usd).label("cost"),
+        )
+        .where(TokenUsage.agent_id == agent_id)
+        .group_by(TokenUsage.pipeline_run_id)
+        .subquery()
+    )
     rows = await db.execute(
-        select(PipelineRun, Pipeline.title)
+        select(PipelineRun, Pipeline.title, usage.c.tokens, usage.c.cost)
         .join(Pipeline, PipelineRun.pipeline_id == Pipeline.id)
+        .outerjoin(usage, usage.c.pipeline_run_id == PipelineRun.id)
         .where(Pipeline.agent_sequence.contains([agent_id]))
         .order_by(PipelineRun.started_at.desc())
         .limit(50)
@@ -187,8 +200,10 @@ async def list_agent_runs(
             error=run.error,
             started_at=run.started_at,
             completed_at=run.completed_at,
+            tokens=int(tokens or 0),
+            cost_usd=float(cost or 0),
         )
-        for run, title in rows.all()
+        for run, title, tokens, cost in rows.all()
     ]
 
 

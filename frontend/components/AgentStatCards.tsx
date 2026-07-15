@@ -1,18 +1,14 @@
-import { Agent } from "@/types";
+import { AgentUsageSummary } from "@/types";
 
 interface AgentStatCardsProps {
-  agent: Agent;
+  usage: AgentUsageSummary;
 }
 
-export default function AgentStatCards({ agent }: AgentStatCardsProps) {
-  const lifetimeCost = agent.cost_usd.toFixed(2);
-  const thisMonth = (agent.cost_usd * 0.262).toFixed(2);
-  const avgPerDay = (agent.cost_usd / 30).toFixed(2);
-
+export default function AgentStatCards({ usage }: AgentStatCardsProps) {
   const cards = [
-    { label: "LIFETIME COST", value: `$${lifetimeCost}` },
-    { label: "THIS MONTH", value: `$${thisMonth}` },
-    { label: "AVG PER DAY", value: `$${avgPerDay}` },
+    { label: "LIFETIME COST", value: `$${usage.lifetime_cost_usd.toFixed(2)}` },
+    { label: "THIS MONTH", value: `$${usage.month_cost_usd.toFixed(2)}` },
+    { label: "AVG PER DAY", value: `$${usage.avg_cost_per_day_usd.toFixed(2)}` },
   ];
 
   return (

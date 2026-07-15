@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { getTokenUsage } from "@/lib/api";
+import type { TokenUsageInterval, TokenUsagePoint } from "@/types";
 
-type Interval = "day" | "week" | "month" | "all";
+type Interval = TokenUsageInterval;
 
 const INTERVAL_OPTIONS: { key: Interval; label: string }[] = [
   { key: "day", label: "Day" },
@@ -12,29 +14,74 @@ const INTERVAL_OPTIONS: { key: Interval; label: string }[] = [
   { key: "all", label: "All Time" },
 ];
 
-function generateData(totalTokens: number, interval: Interval) {
-  const seed = totalTokens || 100_000;
-  const rand = (i: number, scale: number) =>
-    Math.max(0, Math.round((Math.sin(i * 2.3 + seed % 7) * 0.4 + 0.6) * scale + Math.random() * scale * 0.1));
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+const WEEK = 7 * DAY;
+const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+interface Slot {
+  start: number;
+  end: number;
+  label: string;
+}
+
+// Fixed display ranges per interval (UTC, matching the backend's date_trunc
+// buckets); sparse API points are summed into their slot so the chart always
+// renders the full range with zeros where nothing was recorded.
+function buildSlots(interval: Interval, points: TokenUsagePoint[]): Slot[] {
+  const now = Date.now();
   if (interval === "day") {
-    return Array.from({ length: 24 }, (_, i) => ({
-      label: `${i}:00`,
-      tokens: rand(i, seed / 24),
-    }));
+    const cur = Math.floor(now / HOUR) * HOUR;
+    return Array.from({ length: 24 }, (_, i) => {
+      const start = cur - (23 - i) * HOUR;
+      return { start, end: start + HOUR, label: `${new Date(start).getUTCHours()}:00` };
+    });
   }
   if (interval === "week") {
-    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-    return days.map((label, i) => ({ label, tokens: rand(i, seed / 7) }));
+    const cur = Math.floor(now / DAY) * DAY;
+    return Array.from({ length: 7 }, (_, i) => {
+      const start = cur - (6 - i) * DAY;
+      return { start, end: start + DAY, label: DAY_NAMES[new Date(start).getUTCDay()] };
+    });
   }
   if (interval === "month") {
-    return Array.from({ length: 4 }, (_, i) => ({
-      label: `Wk ${i + 1}`,
-      tokens: rand(i, seed / 4),
-    }));
+    const end = Math.floor(now / DAY) * DAY + DAY;
+    return Array.from({ length: 4 }, (_, i) => {
+      const start = end - (4 - i) * WEEK;
+      return { start, end: start + WEEK, label: `Wk ${i + 1}` };
+    });
   }
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return months.map((label, i) => ({ label, tokens: rand(i, seed / 12) }));
+  // "all": one slot per calendar month across the data range
+  if (points.length === 0) return [];
+  const first = new Date(points[0].bucket);
+  const last = new Date(points[points.length - 1].bucket);
+  const spansYears = first.getUTCFullYear() !== last.getUTCFullYear();
+  const slots: Slot[] = [];
+  let cursor = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), 1));
+  while (cursor.getTime() <= last.getTime()) {
+    const next = new Date(Date.UTC(cursor.getUTCFullYear(), cursor.getUTCMonth() + 1, 1));
+    slots.push({
+      start: cursor.getTime(),
+      end: next.getTime(),
+      label: cursor.toLocaleDateString("en-US", {
+        month: "short",
+        ...(spansYears ? { year: "2-digit" } : {}),
+        timeZone: "UTC",
+      }),
+    });
+    cursor = next;
+  }
+  return slots;
+}
+
+function fillSlots(slots: Slot[], points: TokenUsagePoint[]) {
+  const data = slots.map((s) => ({ label: s.label, tokens: 0 }));
+  for (const p of points) {
+    const t = new Date(p.bucket).getTime();
+    const idx = slots.findIndex((s) => t >= s.start && t < s.end);
+    if (idx >= 0) data[idx].tokens += p.tokens;
+  }
+  return data;
 }
 
 function formatTokens(n: number) {
@@ -60,14 +107,34 @@ function CustomTooltip({ active, payload, label }: any) {
 }
 
 interface Props {
-  totalTokens: number;
+  agentId: string;
   accentColor?: string;
 }
 
-export default function TokenUsageGraph({ totalTokens, accentColor = "#f59e0b" }: Props) {
+export default function TokenUsageGraph({ agentId, accentColor = "#f59e0b" }: Props) {
   const [interval, setInterval] = useState<Interval>("week");
-  const data = generateData(totalTokens, interval);
-  const maxVal = Math.max(...data.map((d) => d.tokens));
+  // null = loading
+  const [points, setPoints] = useState<TokenUsagePoint[] | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPoints(null);
+    getTokenUsage({ agent_id: agentId, interval })
+      .then((series) => {
+        if (!cancelled) setPoints(series.points);
+      })
+      .catch(() => {
+        if (!cancelled) setPoints([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, interval]);
+
+  const loading = points === null;
+  const data = loading ? [] : fillSlots(buildSlots(interval, points), points);
+  const maxVal = Math.max(...data.map((d) => d.tokens), 0);
+  const hasUsage = data.some((d) => d.tokens > 0);
 
   return (
     <div
@@ -95,28 +162,39 @@ export default function TokenUsageGraph({ totalTokens, accentColor = "#f59e0b" }
           ))}
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={160}>
-        <BarChart data={data} barCategoryGap="30%">
-          <XAxis
-            dataKey="label"
-            tick={{ fontSize: 10, fill: "#3f3f46" }}
-            axisLine={false}
-            tickLine={false}
-            interval={interval === "day" ? 3 : 0}
-          />
-          <YAxis hide />
-          <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
-          <Bar dataKey="tokens" radius={[3, 3, 0, 0]}>
-            {data.map((entry, i) => (
-              <Cell
-                key={i}
-                fill={accentColor}
-                fillOpacity={entry.tokens === maxVal ? 1 : 0.3}
-              />
-            ))}
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
+      {loading ? (
+        <div className="animate-pulse rounded-lg" style={{ height: 160, background: "#1a1a1a" }} />
+      ) : !hasUsage ? (
+        <div
+          className="flex items-center justify-center text-xs"
+          style={{ height: 160, color: "#3f3f46" }}
+        >
+          No token usage recorded {interval === "all" ? "yet" : "in this period"}
+        </div>
+      ) : (
+        <ResponsiveContainer width="100%" height={160}>
+          <BarChart data={data} barCategoryGap="30%">
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 10, fill: "#3f3f46" }}
+              axisLine={false}
+              tickLine={false}
+              interval={interval === "day" ? 3 : 0}
+            />
+            <YAxis hide />
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: "rgba(255,255,255,0.03)" }} />
+            <Bar dataKey="tokens" radius={[3, 3, 0, 0]}>
+              {data.map((entry, i) => (
+                <Cell
+                  key={i}
+                  fill={accentColor}
+                  fillOpacity={entry.tokens === maxVal ? 1 : 0.3}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      )}
     </div>
   );
 }

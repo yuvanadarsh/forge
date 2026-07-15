@@ -293,6 +293,8 @@ export interface AgentRun {
   error: string | null;
   started_at: string;
   completed_at: string | null;
+  tokens: number; // this agent's usage within the run
+  cost_usd: number;
 }
 
 export interface KeyTestResult {
