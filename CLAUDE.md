@@ -76,6 +76,12 @@ button to agent execution, add pipeline creation UI.
 - No containerized database — data lives on host machine, survives container restarts
 - One command to run everything: docker compose up --build
 
+## Running Locally
+
+- docker compose up --build
+- Hot reload enabled via volume mounts on both frontend and backend.
+- Postgres runs on host machine — containers connect via host.docker.internal.
+
 ## Database
 
 - PostgreSQL via Homebrew on host machine

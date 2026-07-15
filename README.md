@@ -155,58 +155,45 @@ No UI component library — everything built from scratch with Tailwind.
 
 ---
 
-## Getting Started
+## Running Locally
 
-**Prerequisites:** Docker, and PostgreSQL running on the host with the `pgvector`
-extension available (`brew install postgresql pgvector` on macOS).
+**Prerequisites:** PostgreSQL running on the host with pgvector extension
+(`brew install postgresql` then `brew install pgvector` on macOS).
+Docker Desktop must be running.
 
-### Running Locally
+1. Clone the repo:
+   ```bash
+   git clone https://github.com/yuvanadarsh/forge.git
+   cd forge
+   ```
 
-```bash
-# 1. Clone the repo
-git clone https://github.com/yuvanadarsh/forge.git
-cd forge
+2. Copy and fill in environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Fill in `.env`:
+   - `DB_USER` / `DB_PASSWORD` / `DB_NAME` — your local Postgres credentials
+   - `SECRET_KEY` — generate with `openssl rand -hex 32`
+   - `VOYAGE_API_KEY` — optional, memory search degrades gracefully without it
 
-# 2. Copy .env.example to .env, fill in DB credentials and SECRET_KEY
-cp .env.example .env
-#    → DB_USER / DB_PASSWORD / DB_NAME
-#    → SECRET_KEY: openssl rand -hex 32
-#    → VOYAGE_API_KEY (optional — memory search degrades gracefully without it)
+3. Create the database and run the migration:
+   ```bash
+   psql -U your_user -c "CREATE DATABASE forge;"
+   psql -U your_user -d forge -f backend/db/migrations/001_initial.sql
+   ```
 
-# 3. Create the forge database and run the migration
-createdb forge
-psql -d forge -f backend/db/migrations/001_initial.sql
-
-# 4. Run everything (or run frontend/backend separately — see below)
-docker compose up --build
-```
+4. Start everything:
+   ```bash
+   docker compose up --build
+   ```
+   Hot reload is enabled — code changes on your machine reflect
+   inside the containers instantly without restarting.
 
 5. Open [http://localhost:3000](http://localhost:3000)
-6. Go to **Settings → API Keys → Add** and paste your Anthropic API key
-   (stored AES-256 encrypted in the DB — never in `.env`)
-7. Create an agent and start a pipeline
+   Go to **Settings → API Keys** and add your Anthropic API key.
 
-API health: [http://localhost:8000/health](http://localhost:8000/health) · API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-The frontend needs `frontend/.env.local` when run outside compose:
-
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000
-NEXT_PUBLIC_WS_URL=ws://localhost:8000
-```
-
-**Local development without Docker:**
-
-```bash
-# backend (Python 3.11+; on 3.13 install voyageai>=0.3.3)
-cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-echo "DATABASE_URL=postgresql+asyncpg://localhost:5432/forge" > .env
-echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
-.venv/bin/uvicorn main:app --reload --port 8000
-
-# frontend
-cd frontend && npm install && npm run dev
-```
+API health check: [http://localhost:8000/health](http://localhost:8000/health)
+API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
