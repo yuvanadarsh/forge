@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { reembedAllData } from "@/lib/api";
+
 const EMBEDDING_MODELS = [
   { id: "voyage-3", label: "voyage-3 (VoyageAI)" },
   { id: "voyage-3-lite", label: "voyage-3-lite (VoyageAI)" },
@@ -7,11 +10,32 @@ const EMBEDDING_MODELS = [
 ];
 
 interface Props {
+  /** Current embedding_model from GET /api/settings (null while loading). */
+  embeddingModel: string | null;
   showToast: (msg: string) => void;
 }
 
-export default function EmbeddingsSection({ showToast }: Props) {
-  const embeddingModel = "voyage-3";
+export default function EmbeddingsSection({ embeddingModel, showToast }: Props) {
+  const [reembedding, setReembedding] = useState(false);
+
+  const models = EMBEDDING_MODELS.some((m) => m.id === embeddingModel)
+    ? EMBEDDING_MODELS
+    : embeddingModel
+      ? [...EMBEDDING_MODELS, { id: embeddingModel, label: embeddingModel }]
+      : EMBEDDING_MODELS;
+
+  async function handleReembed() {
+    if (reembedding) return;
+    setReembedding(true);
+    try {
+      await reembedAllData();
+      showToast("Coming soon — re-embedding not yet implemented.");
+    } catch {
+      showToast("Could not reach the backend.");
+    } finally {
+      setReembedding(false);
+    }
+  }
 
   return (
     <>
@@ -42,12 +66,12 @@ export default function EmbeddingsSection({ showToast }: Props) {
           </label>
           <div className="relative">
             <select
-              value={embeddingModel}
+              value={embeddingModel ?? "voyage-3"}
               disabled
               className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border cursor-not-allowed"
               style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#3f3f46" }}
             >
-              {EMBEDDING_MODELS.map((m) => (
+              {models.map((m) => (
                 <option key={m.id} value={m.id}>{m.label}</option>
               ))}
             </select>
@@ -63,7 +87,8 @@ export default function EmbeddingsSection({ showToast }: Props) {
           </p>
         </div>
         <button
-          onClick={() => showToast("Coming soon — re-embedding not yet implemented.")}
+          onClick={handleReembed}
+          disabled={reembedding}
           className="flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors duration-150"
           style={{ background: "#1f1f1f", color: "#71717a" }}
           onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5"; }}
@@ -73,7 +98,7 @@ export default function EmbeddingsSection({ showToast }: Props) {
             <polyline points="1 4 1 10 7 10" />
             <path d="M3.51 15a9 9 0 1 0 .49-3" />
           </svg>
-          Re-embed All Data
+          {reembedding ? "Requesting…" : "Re-embed All Data"}
         </button>
       </div>
     </>

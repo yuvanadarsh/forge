@@ -1,13 +1,24 @@
 "use client";
 
 import { useState } from "react";
-import type { Provider } from "@/types";
+
+// Backed by the api_keys vault. id === null marks the synthetic default row
+// shown before any key exists for that provider ("Not configured").
+export interface ProviderRowData {
+  id: string | null;
+  provider: string;
+  name: string;
+  baseUrl: string | null;
+  maskedKey: string | null;
+  isDefault: boolean;
+}
 
 interface Props {
-  provider: Provider;
-  onSaveKey: (id: string, key: string) => void;
-  onDelete: (id: string) => void;
-  onTest: () => void;
+  provider: ProviderRowData;
+  /** Resolve true on success (row exits edit mode), false to stay editing. */
+  onSaveKey: (row: ProviderRowData, key: string) => Promise<boolean>;
+  onDelete: (row: ProviderRowData) => void;
+  onTest: (row: ProviderRowData) => Promise<void>;
 }
 
 const inputClass =
@@ -17,22 +28,35 @@ const inputStyle = { background: "#0d0d0d", borderColor: "#1f1f1f", color: "#a1a
 export default function ProviderRow({ provider: p, onSaveKey, onDelete, onTest }: Props) {
   const [isEditing, setIsEditing] = useState(false);
   const [editingKey, setEditingKey] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   function startEdit() {
     setIsEditing(true);
     setEditingKey("");
   }
 
-  function saveKey() {
-    if (!editingKey.trim()) return;
-    onSaveKey(p.id, editingKey);
-    setIsEditing(false);
-    setEditingKey("");
+  async function saveKey() {
+    if (!editingKey.trim() || saving) return;
+    setSaving(true);
+    const ok = await onSaveKey(p, editingKey.trim());
+    setSaving(false);
+    if (ok) {
+      setIsEditing(false);
+      setEditingKey("");
+    }
   }
 
   function cancel() {
     setIsEditing(false);
     setEditingKey("");
+  }
+
+  async function runTest() {
+    if (testing) return;
+    setTesting(true);
+    await onTest(p);
+    setTesting(false);
   }
 
   return (
@@ -71,9 +95,7 @@ export default function ProviderRow({ provider: p, onSaveKey, onDelete, onTest }
         />
       ) : (
         <div className={`${inputClass} cursor-default`} style={inputStyle}>
-          {p.apiKey
-            ? "••••••••••••••••••••••••"
-            : <span style={{ color: "#3f3f46" }}>Not configured</span>}
+          {p.maskedKey ?? <span style={{ color: "#3f3f46" }}>Not configured</span>}
         </div>
       )}
 
@@ -90,10 +112,11 @@ export default function ProviderRow({ provider: p, onSaveKey, onDelete, onTest }
             </button>
             <button
               onClick={saveKey}
+              disabled={saving}
               className="text-xs px-2.5 py-1.5 rounded-lg font-semibold transition-colors duration-150"
               style={{ background: "#f59e0b", color: "#0a0a0a" }}
             >
-              Save
+              {saving ? "Saving…" : "Save"}
             </button>
           </>
         ) : (
@@ -105,20 +128,21 @@ export default function ProviderRow({ provider: p, onSaveKey, onDelete, onTest }
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5"; }}
               onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#71717a"; }}
             >
-              {p.apiKey ? "Update" : "Add"}
+              {p.maskedKey ? "Update" : "Add"}
             </button>
             <button
-              onClick={onTest}
+              onClick={runTest}
+              disabled={testing}
               className="text-xs px-2.5 py-1.5 rounded-lg transition-colors duration-150"
-              style={{ background: "#1f1f1f", color: "#71717a" }}
+              style={{ background: "#1f1f1f", color: testing ? "#3b82f6" : "#71717a" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#3b82f6"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#71717a"; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = testing ? "#3b82f6" : "#71717a"; }}
             >
-              Test
+              {testing ? "Testing…" : "Test"}
             </button>
-            {!p.isDefault && (
+            {!p.isDefault && p.id && (
               <button
-                onClick={() => onDelete(p.id)}
+                onClick={() => onDelete(p)}
                 className="text-xs px-2.5 py-1.5 rounded-lg transition-colors duration-150"
                 style={{ background: "#1f1f1f", color: "#71717a" }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#ef4444"; }}

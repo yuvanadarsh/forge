@@ -1,11 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import type { Provider } from "@/types";
+import { addApiKey } from "@/lib/api";
+import type { ApiKeyInfo } from "@/types";
 
 interface Props {
   onClose: () => void;
-  onAdd: (provider: Provider) => void;
+  /** Called with the persisted key after a successful POST. */
+  onAdd: (key: ApiKeyInfo) => void;
+  /** Called with the API error message; the modal stays open. */
+  onError?: (message: string) => void;
 }
 
 const inputCls =
@@ -25,22 +29,33 @@ function Field({ label, optional, ...props }: React.InputHTMLAttributes<HTMLInpu
   );
 }
 
-export default function AddProviderModal({ onClose, onAdd }: Props) {
+export default function AddProviderModal({ onClose, onAdd, onError }: Props) {
   const [name, setName] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleAdd() {
-    if (!name.trim()) return;
-    onAdd({
-      id: `provider-${Date.now()}`,
-      name: name.trim(),
-      baseUrl: baseUrl.trim() || undefined,
-      apiKey: apiKey.trim() || undefined,
-    });
+  async function handleAdd() {
+    if (!canAdd || submitting) return;
+    setSubmitting(true);
+    try {
+      const created = await addApiKey({
+        provider: name.trim().toLowerCase(),
+        name: name.trim(),
+        base_url: baseUrl.trim() || undefined,
+        api_key: apiKey.trim(),
+      });
+      onAdd(created);
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : "Failed to add provider");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  const canAdd = name.trim().length > 0;
+  // The vault stores encrypted keys, so a key is required (min 4 chars,
+  // matching the backend's validation).
+  const canAdd = name.trim().length > 0 && apiKey.trim().length >= 4;
 
   return (
     <div
@@ -104,11 +119,11 @@ export default function AddProviderModal({ onClose, onAdd }: Props) {
           </button>
           <button
             onClick={handleAdd}
-            disabled={!canAdd}
+            disabled={!canAdd || submitting}
             className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
-            style={{ background: canAdd ? "#f59e0b" : "#2a2a2a", color: canAdd ? "#0a0a0a" : "#3f3f46" }}
+            style={{ background: canAdd && !submitting ? "#f59e0b" : "#2a2a2a", color: canAdd && !submitting ? "#0a0a0a" : "#3f3f46" }}
           >
-            Add Provider
+            {submitting ? "Adding…" : "Add Provider"}
           </button>
         </div>
       </div>
