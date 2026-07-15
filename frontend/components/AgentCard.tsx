@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { Agent, Task } from "@/types";
+import type { Agent, BackendAgent, BackendTask } from "@/types";
 
 const RING_COLORS: Record<string, [string, string]> = {
   "#6366f1": ["#6366f1", "#8b5cf6"],
@@ -45,8 +45,9 @@ function timeAgo(iso: string) {
 }
 
 interface Props {
-  agent: Agent;
-  currentTask?: Task;
+  // Backend shapes; the stricter mock-phase Agent/Task remain assignable.
+  agent: BackendAgent;
+  currentTask?: BackendTask;
 }
 
 export default function AgentCard({ agent, currentTask }: Props) {
@@ -81,7 +82,7 @@ export default function AgentCard({ agent, currentTask }: Props) {
           )}
 
           <div className="text-xs mt-auto" style={{ color: "#3f3f46" }}>
-            Active {timeAgo(agent.last_active)}
+            {agent.last_active ? `Active ${timeAgo(agent.last_active)}` : "Not active yet"}
           </div>
         </div>
       </div>

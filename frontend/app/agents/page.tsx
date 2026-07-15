@@ -2,21 +2,27 @@
 
 import { useState } from "react";
 import AgentCard from "@/components/AgentCard";
-import { mockAgents, mockTasks } from "@/lib/mock-data";
-import type { Agent } from "@/types";
 import CreateAgentModal from "@/components/CreateAgentModal";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import Toast from "@/components/Toast";
+import { useForge } from "@/lib/store";
+import type { BackendAgent } from "@/types";
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState(mockAgents);
+  const { state, dispatch } = useForge();
   const [showModal, setShowModal] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const { agents, tasks, loading } = state;
 
   function getCurrentTask(agentId: string) {
-    return mockTasks.find((t) => t.assigned_to === agentId && t.status === "in_progress");
+    return tasks.find((t) => t.assigned_to === agentId && t.status === "in_progress");
   }
 
-  function handleCreateAgent(agent: Agent) {
-    setAgents((prev) => [...prev, agent]);
+  function handleCreated(agent: BackendAgent) {
+    dispatch({ type: "ADD_AGENT", agent });
     setShowModal(false);
+    setToast(`Agent "${agent.name}" created`);
   }
 
   return (
@@ -25,7 +31,7 @@ export default function AgentsPage() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: "#f5f5f5" }}>Agent Registry</h1>
           <p className="text-sm mt-1" style={{ color: "#71717a" }}>
-            {agents.length} agents registered
+            {loading.agents ? "Loading agents…" : `${agents.length} agents registered`}
           </p>
         </div>
         <button
@@ -43,15 +49,38 @@ export default function AgentsPage() {
         </button>
       </div>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
-        {agents.map((agent) => (
-          <AgentCard key={agent.id} agent={agent} currentTask={getCurrentTask(agent.id)} />
-        ))}
-      </div>
+      {loading.agents ? (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 items-stretch">
+          <LoadingSkeleton variant="card" count={9} />
+        </div>
+      ) : agents.length === 0 ? (
+        <div
+          className="rounded-xl border flex flex-col items-center justify-center py-20 text-center"
+          style={{ background: "#111111", borderColor: "#1f1f1f" }}
+        >
+          <div className="text-sm font-medium" style={{ color: "#f5f5f5" }}>
+            No agents yet.
+          </div>
+          <div className="text-sm mt-1" style={{ color: "#71717a" }}>
+            Create your first agent.
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
+          {agents.map((agent) => (
+            <AgentCard key={agent.id} agent={agent} currentTask={getCurrentTask(agent.id)} />
+          ))}
+        </div>
+      )}
 
       {showModal && (
-        <CreateAgentModal onClose={() => setShowModal(false)} onCreate={handleCreateAgent} />
+        <CreateAgentModal
+          onClose={() => setShowModal(false)}
+          onCreate={handleCreated}
+          onError={(message) => setToast(`Could not create agent: ${message}`)}
+        />
       )}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

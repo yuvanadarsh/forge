@@ -9,7 +9,7 @@ import CreateAgentModal from "@/components/CreateAgentModal";
 import TaskSlideOver from "@/components/TaskSlideOver";
 import CostAnalyticsGraph from "@/components/CostAnalyticsGraph";
 import { mockAgents, mockTasks } from "@/lib/mock-data";
-import type { Agent, Task } from "@/types";
+import type { BackendAgent, Task } from "@/types";
 
 const COLUMNS: { key: Task["status"]; label: string }[] = [
   { key: "backlog", label: "Backlog" },
@@ -35,8 +35,8 @@ export default function DashboardPage() {
     return tasks.find((t) => t.assigned_to === agentId && t.status === "in_progress");
   }
 
-  function handleCreateAgent(agent: Agent) {
-    setAgents((prev) => [...prev, agent]);
+  function handleCreateAgent(agent: BackendAgent) {
+    setAgents((prev) => [...prev, { ...agent, last_active: agent.last_active ?? agent.created_at }]);
     setShowAgentModal(false);
   }
 
