@@ -4,6 +4,7 @@ Serves the REST API under /api, a health check at /health, and the
 per-pipeline-run WebSocket stream at /ws/pipeline/{pipeline_run_id}.
 """
 
+import os
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -37,9 +38,18 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Forge API", version="0.1.0", lifespan=lifespan)
 
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=[
+        FRONTEND_URL,
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:8000",
+        "http://localhost:8001",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
