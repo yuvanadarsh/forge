@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import ErrorBanner from "@/components/ErrorBanner";
 import Sidebar from "@/components/Sidebar";
 import { ForgeProvider } from "@/lib/store";
 
@@ -30,6 +31,7 @@ export default function RootLayout({
         <ForgeProvider>
           <Sidebar />
           <main className="flex-1 ml-[220px] min-h-screen overflow-y-auto">
+            <ErrorBanner />
             {children}
           </main>
         </ForgeProvider>

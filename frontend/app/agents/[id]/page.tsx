@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
 import AgentStatCards from "@/components/AgentStatCards";
+import ErrorState from "@/components/ErrorState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Toast from "@/components/Toast";
 import TokenUsageGraph from "@/components/TokenUsageGraph";
@@ -109,17 +110,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
   if (fetchState === "error" || agent === null) {
     return (
       <div className="px-8 py-8 max-w-[900px] mx-auto">
-        <div
-          className="rounded-xl border flex flex-col items-center py-16 text-center"
-          style={{ background: "#111111", borderColor: "#1f1f1f" }}
-        >
-          <div className="text-sm font-medium" style={{ color: "#ef4444" }}>
-            Failed to load agent
-          </div>
-          <div className="text-xs mt-1" style={{ color: "#71717a" }}>
-            Check that the backend is running, then try again.
-          </div>
-        </div>
+        <ErrorState
+          message="Failed to load agent — check that the backend is running."
+          onRetry={() => window.location.reload()}
+        />
       </div>
     );
   }

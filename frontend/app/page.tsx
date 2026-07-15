@@ -8,6 +8,7 @@ import CreateTaskModal from "@/components/CreateTaskModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
 import TaskSlideOver from "@/components/TaskSlideOver";
 import CostAnalyticsGraph from "@/components/CostAnalyticsGraph";
+import EmptyState from "@/components/EmptyState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { updateTask } from "@/lib/api";
 import { useForge } from "@/lib/store";
@@ -117,15 +118,12 @@ export default function DashboardPage() {
             <LoadingSkeleton variant="card" count={4} />
           </div>
         ) : agents.length === 0 ? (
-          <div
-            className="rounded-xl border flex flex-col items-center justify-center py-12 text-center"
-            style={{ background: "#111111", borderColor: "#1f1f1f" }}
-          >
-            <div className="text-sm font-medium" style={{ color: "#f5f5f5" }}>No agents yet.</div>
-            <div className="text-sm mt-1" style={{ color: "#71717a" }}>
-              Create your first agent to get started.
-            </div>
-          </div>
+          <EmptyState
+            icon="🤖"
+            title="No agents yet."
+            description="Create your first agent to get started."
+            action={{ label: "Create Agent", onClick: () => setShowAgentModal(true) }}
+          />
         ) : (
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
             {agents.map((agent) => (

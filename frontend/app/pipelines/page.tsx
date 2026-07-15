@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import EmptyState from "@/components/EmptyState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Toast from "@/components/Toast";
 import { approvePipeline } from "@/lib/api";
@@ -81,15 +82,11 @@ export default function PipelinesPage() {
           <LoadingSkeleton variant="card" count={3} />
         </div>
       ) : pipelines.length === 0 ? (
-        <div
-          className="rounded-xl border flex flex-col items-center justify-center py-20 text-center"
-          style={{ background: "#111111", borderColor: "#1f1f1f" }}
-        >
-          <div className="text-sm font-medium" style={{ color: "#f5f5f5" }}>No pipelines yet.</div>
-          <div className="text-sm mt-1" style={{ color: "#71717a" }}>
-            Pipelines are created from agent chats or the API.
-          </div>
-        </div>
+        <EmptyState
+          icon="⚙️"
+          title="No pipelines yet."
+          description="Pipelines are created from agent chats or the API."
+        />
       ) : (
         <div className="flex flex-col gap-4">
           {pipelines.map((pipeline) => {

@@ -8,6 +8,7 @@ import ApprovalGateCard from "@/components/ApprovalGateCard";
 import PipelineChatInput from "@/components/PipelineChatInput";
 import PipelineParticipants from "@/components/PipelineParticipants";
 import PipelineExecutionPlan from "@/components/PipelineExecutionPlan";
+import ErrorState from "@/components/ErrorState";
 import Toast from "@/components/Toast";
 import {
   ApiError,
@@ -283,12 +284,12 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
   if (fetchState === "error" || pipeline === null) {
     return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-center">
-          <div className="text-sm font-medium" style={{ color: "#ef4444" }}>Failed to load pipeline</div>
-          <div className="text-xs mt-1" style={{ color: "#71717a" }}>
-            Check that the backend is running, then refresh.
-          </div>
+      <div className="flex h-screen items-center justify-center px-8">
+        <div className="w-full max-w-[480px]">
+          <ErrorState
+            message="Failed to load pipeline — check that the backend is running."
+            onRetry={() => window.location.reload()}
+          />
         </div>
       </div>
     );
