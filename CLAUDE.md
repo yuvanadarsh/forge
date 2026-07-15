@@ -75,6 +75,8 @@ button to agent execution, add pipeline creation UI.
 - Both connect to HOST Postgres via host.docker.internal:5432
 - No containerized database — data lives on host machine, survives container restarts
 - One command to run everything: docker compose up --build
+- ~/forge-workspace is mounted into the backend container at /root/forge-workspace,
+  so files agents write to a pipeline's workspace_path are visible on the host (Finder)
 
 ## Running Locally
 
