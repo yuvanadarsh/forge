@@ -1,11 +1,23 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { mockAgents, mockConversations, mockTasks } from "@/lib/mock-data";
-import { notFound } from "next/navigation";
-import TokenUsageGraph from "@/components/TokenUsageGraph";
+import { notFound, useRouter } from "next/navigation";
 import AgentStatCards from "@/components/AgentStatCards";
+import ErrorState from "@/components/ErrorState";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import Toast from "@/components/Toast";
+import TokenUsageGraph from "@/components/TokenUsageGraph";
+import {
+  ApiError,
+  createConversation,
+  getAgent,
+  listAgentRuns,
+  listConversations,
+  updateAgent,
+} from "@/lib/api";
+import { useForge } from "@/lib/store";
+import type { AgentRun, BackendAgentDetail, BackendConversation } from "@/types";
 
 function timeAgo(iso: string | null) {
   if (!iso) return "never";
@@ -27,41 +39,122 @@ const RING_COLORS: Record<string, [string, string]> = {
   "#f97316": ["#f97316", "#eab308"],
 };
 
+const RUN_STATUS_STYLES: Record<string, { label: string; color: string; bg: string }> = {
+  completed: { label: "Success", color: "#22c55e", bg: "#0a1a0a" },
+  failed: { label: "Error", color: "#ef4444", bg: "#1a0a0a" },
+  running: { label: "Running", color: "#f59e0b", bg: "#1a140a" },
+  paused_for_approval: { label: "Paused", color: "#f59e0b", bg: "#1a140a" },
+  approved: { label: "Resuming", color: "#f59e0b", bg: "#1a140a" },
+  cancelled: { label: "Cancelled", color: "#71717a", bg: "#161616" },
+};
+
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const agentData = mockAgents.find((a) => a.id === id);
-  if (!agentData) notFound();
+  const router = useRouter();
+  const { state, dispatch } = useForge();
 
-  const [systemPrompt, setSystemPrompt] = useState(agentData.system_prompt);
+  const [agent, setAgent] = useState<BackendAgentDetail | null>(null);
+  const [fetchState, setFetchState] = useState<"loading" | "ready" | "notfound" | "error">(
+    "loading",
+  );
+  const [conversations, setConversations] = useState<BackendConversation[]>([]);
+  const [runs, setRuns] = useState<AgentRun[]>([]);
+
   const [editingPrompt, setEditingPrompt] = useState(false);
-  const [promptDraft, setPromptDraft] = useState(agentData.system_prompt);
+  const [promptDraft, setPromptDraft] = useState("");
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
   const [runHistoryOpen, setRunHistoryOpen] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const conversations = mockConversations.filter((c) => c.agent_id === id);
+  useEffect(() => {
+    let cancelled = false;
+    setFetchState("loading");
+    getAgent(id)
+      .then((detail) => {
+        if (cancelled) return;
+        setAgent(detail);
+        setFetchState("ready");
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setFetchState(err instanceof ApiError && err.status === 404 ? "notfound" : "error");
+      });
+    // Secondary sections load independently; their failure isn't fatal.
+    listConversations({ agent_id: id })
+      .then((convos) => {
+        if (!cancelled) setConversations(convos);
+      })
+      .catch(() => {});
+    listAgentRuns(id)
+      .then((history) => {
+        if (!cancelled) setRuns(history);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  if (fetchState === "notfound") notFound();
+
+  if (fetchState === "loading") {
+    return (
+      <div className="px-8 py-8 max-w-[900px] mx-auto space-y-4">
+        <LoadingSkeleton variant="card" count={1} />
+        <LoadingSkeleton variant="text" count={2} />
+        <LoadingSkeleton variant="row" count={3} />
+      </div>
+    );
+  }
+
+  if (fetchState === "error" || agent === null) {
+    return (
+      <div className="px-8 py-8 max-w-[900px] mx-auto">
+        <ErrorState
+          message="Failed to load agent — check that the backend is running."
+          onRetry={() => window.location.reload()}
+        />
+      </div>
+    );
+  }
+
   const taskConvos = conversations.filter((c) => c.task_id !== null);
+  const getTask = (taskId: string | null) => state.tasks.find((t) => t.id === taskId);
 
-  const mockRunHistory = [
-    { id: "run-1", timestamp: "2026-06-23T14:30:00Z", taskName: "Design agent communication protocol", tokens: 18400, cost: 0.37, status: "success" as const },
-    { id: "run-2", timestamp: "2026-06-23T11:00:00Z", taskName: "Review TypeScript interfaces", tokens: 9200, cost: 0.18, status: "success" as const },
-    { id: "run-3", timestamp: "2026-06-22T16:45:00Z", taskName: "Finalize system component hierarchy", tokens: 22100, cost: 0.44, status: "error" as const },
-    { id: "run-4", timestamp: "2026-06-22T09:15:00Z", taskName: "Draft API schema proposal", tokens: 14600, cost: 0.29, status: "success" as const },
-    { id: "run-5", timestamp: "2026-06-21T13:00:00Z", taskName: "Architecture review session", tokens: 31200, cost: 0.62, status: "success" as const },
-  ];
+  const statusColor =
+    { idle: "#71717a", working: "#22c55e", error: "#ef4444" }[agent.status] ?? "#71717a";
+  const statusLabel = { idle: "Idle", working: "Working", error: "Error" }[agent.status] ?? agent.status;
 
-  const statusColor = { idle: "#71717a", working: "#22c55e", error: "#ef4444" }[agentData.status];
-  const statusLabel = { idle: "Idle", working: "Working", error: "Error" }[agentData.status];
-
-  const pair = RING_COLORS[agentData.avatar_color] ?? [agentData.avatar_color, agentData.avatar_color];
+  const pair = RING_COLORS[agent.avatar_color] ?? [agent.avatar_color, agent.avatar_color];
   const gradient = `linear-gradient(to right, ${pair[0]}, ${pair[1]})`;
 
   function startEdit() {
-    setPromptDraft(systemPrompt);
-    setEditingPrompt(true);
+    if (agent) {
+      setPromptDraft(agent.system_prompt);
+      setEditingPrompt(true);
+    }
   }
 
-  function savePrompt() {
-    setSystemPrompt(promptDraft);
+  async function savePrompt() {
+    if (!agent) return;
+    const previous = agent.system_prompt;
+    const draft = promptDraft;
+    // Optimistic: reflect the edit immediately, revert if the PATCH fails.
+    setAgent((prev) => (prev ? { ...prev, system_prompt: draft } : prev));
     setEditingPrompt(false);
+    setSaveState("saving");
+    try {
+      const updated = await updateAgent(id, { system_prompt: draft });
+      dispatch({ type: "UPDATE_AGENT", agent: updated });
+      setSaveState("saved");
+      setTimeout(() => setSaveState("idle"), 2000);
+    } catch (err) {
+      setAgent((prev) => (prev ? { ...prev, system_prompt: previous } : prev));
+      setSaveState("idle");
+      setToast(
+        `Failed to save prompt: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    }
   }
 
   return (
@@ -81,13 +174,13 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
         <div className="rounded-xl p-6 flex items-start gap-5" style={{ background: "#111111" }}>
           <div
             className="w-14 h-14 rounded-xl flex items-center justify-center text-xl font-bold shrink-0"
-            style={{ background: agentData.avatar_color, color: "#fff" }}
+            style={{ background: agent.avatar_color, color: "#fff" }}
           >
-            {agentData.name[0]}
+            {agent.name[0]}
           </div>
           <div className="flex-1">
             <div className="flex items-center gap-3">
-              <h1 className="text-xl font-bold" style={{ color: "#f5f5f5" }}>{agentData.name}</h1>
+              <h1 className="text-xl font-bold" style={{ color: "#f5f5f5" }}>{agent.name}</h1>
               <span
                 className="text-xs px-2 py-1 rounded-full font-medium border"
                 style={{ color: statusColor, borderColor: statusColor, background: `${statusColor}15` }}
@@ -95,11 +188,12 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
                 {statusLabel}
               </span>
             </div>
-            <p className="text-sm mt-0.5" style={{ color: "#71717a" }}>{agentData.role} · {agentData.specialty}</p>
+            <p className="text-sm mt-0.5" style={{ color: "#71717a" }}>{agent.role} · {agent.specialty}</p>
             <div className="flex items-center gap-4 mt-3 text-xs" style={{ color: "#71717a" }}>
-              <span className="px-2 py-1 rounded-lg" style={{ background: "#1a1a1a" }}>{agentData.model}</span>
-              <span>{(agentData.tokens_used / 1000).toFixed(0)}k tokens</span>
-              <span>${agentData.cost_usd.toFixed(2)} spent</span>
+              <span className="px-2 py-1 rounded-lg" style={{ background: "#1a1a1a" }}>{agent.model}</span>
+              <span>{(agent.tokens_used / 1000).toFixed(0)}k tokens</span>
+              <span>${agent.cost_usd.toFixed(2)} spent</span>
+              <span>Active {timeAgo(agent.last_active)}</span>
             </div>
           </div>
         </div>
@@ -114,12 +208,19 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           {!editingPrompt ? (
             <button
               onClick={startEdit}
+              disabled={saveState === "saving"}
               className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
-              style={{ background: "#1f1f1f", color: "#71717a" }}
+              style={{
+                background: "#1f1f1f",
+                color: saveState === "saved" ? "#22c55e" : "#71717a",
+              }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5"; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#71717a"; }}
+              onMouseLeave={(e) => {
+                (e.currentTarget as HTMLButtonElement).style.color =
+                  saveState === "saved" ? "#22c55e" : "#71717a";
+              }}
             >
-              Edit
+              {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Edit"}
             </button>
           ) : (
             <div className="flex gap-2">
@@ -153,15 +254,15 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             className="p-4 rounded-xl border text-sm leading-relaxed"
             style={{ background: "#111111", borderColor: "#1f1f1f", color: "#a1a1aa" }}
           >
-            {systemPrompt}
+            {agent.system_prompt || <span style={{ color: "#3f3f46" }}>No system prompt set.</span>}
           </div>
         )}
       </section>
 
       {/* Token Usage Graph */}
       <section className="mb-8">
-        <AgentStatCards agent={agentData} />
-        <TokenUsageGraph totalTokens={agentData.tokens_used} accentColor={pair[0]} />
+        <AgentStatCards usage={agent.usage} />
+        <TokenUsageGraph agentId={id} accentColor={pair[0]} />
       </section>
 
       {/* Task Conversations */}
@@ -170,13 +271,22 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#71717a" }}>
             Task Conversations
           </h2>
-          <Link
-            href={`/agents/${id}/conversations/new`}
+          <button
+            onClick={async () => {
+              try {
+                const created = await createConversation({ title: "General Chat", agent_id: id });
+                router.push(`/agents/${id}/conversations/${created.id}`);
+              } catch (err) {
+                setToast(
+                  `Could not start chat: ${err instanceof Error ? err.message : "unknown error"}`,
+                );
+              }
+            }}
             className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
             style={{ background: "#1f1f1f", color: "#f59e0b" }}
           >
             + General Chat
-          </Link>
+          </button>
         </div>
 
         {taskConvos.length === 0 && (
@@ -185,7 +295,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
         <div className="flex flex-col gap-2">
           {taskConvos.map((conv) => {
-            const task = mockTasks.find((t) => t.id === conv.task_id);
+            const task = getTask(conv.task_id);
             return (
               <Link
                 key={conv.id}
@@ -231,47 +341,58 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           </span>
         </button>
 
+        {runHistoryOpen && runs.length === 0 && (
+          <p className="text-sm" style={{ color: "#71717a" }}>No pipeline runs yet.</p>
+        )}
+
         {runHistoryOpen && (
           <div className="flex flex-col gap-1">
-            {mockRunHistory.map((run) => (
-              <div
-                key={run.id}
-                className="flex items-center gap-4 px-4 py-3 rounded-xl border transition-colors duration-150 cursor-pointer"
-                style={{
-                  background: "#111111",
-                  borderColor: "#1f1f1f",
-                  borderLeft: run.status === "error" ? "3px solid #ef4444" : "3px solid transparent",
-                }}
-                onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = run.status === "error" ? "#ef4444" : "#2a2a2a")}
-                onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = run.status === "error" ? "#ef4444" : "#1f1f1f")}
-              >
-                <div className="text-[10px] shrink-0" style={{ color: "#52525b", width: "80px" }}>
-                  {new Date(run.timestamp).toLocaleDateString([], { month: "short", day: "numeric" })}{" "}
-                  {new Date(run.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                </div>
-                <div className="flex-1 text-xs truncate" style={{ color: "#a1a1aa" }}>
-                  {run.taskName}
-                </div>
-                <div className="text-[10px] shrink-0" style={{ color: "#52525b" }}>
-                  {(run.tokens / 1000).toFixed(1)}k tok
-                </div>
-                <div className="text-[10px] shrink-0" style={{ color: "#52525b" }}>
-                  ${run.cost.toFixed(2)}
-                </div>
-                <span
-                  className="text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0"
+            {runs.map((run) => {
+              const style = RUN_STATUS_STYLES[run.status] ?? {
+                label: run.status,
+                color: "#71717a",
+                bg: "#161616",
+              };
+              const isError = run.status === "failed";
+              return (
+                <div
+                  key={run.id}
+                  className="flex items-center gap-4 px-4 py-3 rounded-xl border transition-colors duration-150 cursor-pointer"
                   style={{
-                    color: run.status === "success" ? "#22c55e" : "#ef4444",
-                    background: run.status === "success" ? "#0a1a0a" : "#1a0a0a",
+                    background: "#111111",
+                    borderColor: "#1f1f1f",
+                    borderLeft: isError ? "3px solid #ef4444" : "3px solid transparent",
                   }}
+                  onMouseEnter={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = isError ? "#ef4444" : "#2a2a2a")}
+                  onMouseLeave={(e) => ((e.currentTarget as HTMLDivElement).style.borderColor = isError ? "#ef4444" : "#1f1f1f")}
                 >
-                  {run.status === "success" ? "Success" : "Error"}
-                </span>
-              </div>
-            ))}
+                  <div className="text-[10px] shrink-0" style={{ color: "#52525b", width: "80px" }}>
+                    {new Date(run.started_at).toLocaleDateString([], { month: "short", day: "numeric" })}{" "}
+                    {new Date(run.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                  </div>
+                  <div className="flex-1 text-xs truncate" style={{ color: "#a1a1aa" }}>
+                    {run.pipeline_title}
+                  </div>
+                  <div className="text-[10px] shrink-0" style={{ color: "#52525b" }}>
+                    {(run.tokens / 1000).toFixed(1)}k tok
+                  </div>
+                  <div className="text-[10px] shrink-0" style={{ color: "#52525b" }}>
+                    ${run.cost_usd.toFixed(2)}
+                  </div>
+                  <span
+                    className="text-[10px] px-2 py-0.5 rounded-full font-medium shrink-0"
+                    style={{ color: style.color, background: style.bg }}
+                  >
+                    {style.label}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>
+
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

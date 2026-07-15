@@ -74,14 +74,26 @@
 - [x] **Docker** — `docker compose up --build` runs both services against host Postgres
 - [x] **Typed API client** — `frontend/lib/api.ts` covering every endpoint + `createPipelineSocket()`
 
-### Phase 2.5 — Frontend Wiring ⬜ (next session)
+### Phase 2.5 — Frontend Wiring ✅
 
-- [ ] Replace `lib/mock-data.ts` reads with `lib/api.ts` calls
-- [ ] Live pipeline chat rendering token deltas over WebSocket
-- [ ] Loading and error states throughout
-- [ ] Approval gate cards driven by real run status
+- [x] **Global store** — `lib/store.tsx` React Context + useReducer; agents/tasks/pipelines/notifications fetched once on mount, mutations reflect everywhere instantly
+- [x] **Every page on the real API** — dashboard, agents, agent detail, tasks, chat, conversations, pipelines, pipeline chat, settings all read/write through `lib/api.ts` (mock data no longer imported by any page)
+- [x] **Live pipeline chat over WebSocket** — token deltas stream into agent bubbles; tool calls render 🔧 indicator cards updated with results; status/gate/complete/error events drive the UI
+- [x] **Approval gates driven by real run status** — gate cards from persisted `approval_gate` messages and live `gate` events; Approve resumes the LangGraph run, Request Changes posts feedback and keeps the gate open
+- [x] **Agent chat replies** — `POST /messages` runs a single-agent LLM turn (`chat_reply`) and returns the assistant message; optimistic send with pending/thinking states
+- [x] **Analytics on real data** — `GET /api/token-usage` + `GET /api/analytics/cost` aggregate the `token_usage` time series per agent/provider/model/bucket
+- [x] **Key vault UI live** — add/update/delete/test keys against the encrypted vault; Test decrypts and probes the provider API
+- [x] **Security settings UI** — terminal execution mode, strict mode, allowed/denied command lists editable and persisted
+- [x] **Loading / error / empty states** — shared `LoadingSkeleton`, `ErrorState`, `EmptyState` components + dismissible global error banner
+- [x] **Notifications live** — 30s polling, unread badge, mark-read / mark-all-read
 
-### Phase 3 — Hardening ⬜
+### Phase 3 — Real Agent Execution & Pipeline Testing ⬜ (next session)
+
+- [ ] End-to-end pipeline runs with a real Anthropic key (streamed tokens, live gates)
+- [ ] Task "Run →" button triggers agent execution
+- [ ] Pipeline creation UI
+
+### Phase 4 — Hardening ⬜
 
 - [ ] Drag-and-drop kanban
 - [ ] Multi-provider LLM routing (OpenAI, Gemini)
@@ -148,28 +160,40 @@ No UI component library — everything built from scratch with Tailwind.
 **Prerequisites:** Docker, and PostgreSQL running on the host with the `pgvector`
 extension available (`brew install postgresql pgvector` on macOS).
 
+### Running Locally
+
 ```bash
-# 1. Clone
+# 1. Clone the repo
 git clone https://github.com/yuvanadarsh/forge.git
 cd forge
 
-# 2. Configure environment
+# 2. Copy .env.example to .env, fill in DB credentials and SECRET_KEY
 cp .env.example .env
-#    → fill in DB_USER / DB_PASSWORD / DB_NAME
+#    → DB_USER / DB_PASSWORD / DB_NAME
 #    → SECRET_KEY: openssl rand -hex 32
 #    → VOYAGE_API_KEY (optional — memory search degrades gracefully without it)
 
-# 3. Create the database and run the migration
+# 3. Create the forge database and run the migration
 createdb forge
 psql -d forge -f backend/db/migrations/001_initial.sql
 
-# 4. Run everything
+# 4. Run everything (or run frontend/backend separately — see below)
 docker compose up --build
 ```
 
-Frontend: [http://localhost:3000](http://localhost:3000) · API: [http://localhost:8000/health](http://localhost:8000/health) · Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+5. Open [http://localhost:3000](http://localhost:3000)
+6. Go to **Settings → API Keys → Add** and paste your Anthropic API key
+   (stored AES-256 encrypted in the DB — never in `.env`)
+7. Create an agent and start a pipeline
 
-Anthropic API keys are added in the Settings UI (stored AES-256 encrypted in the DB), never in `.env`.
+API health: [http://localhost:8000/health](http://localhost:8000/health) · API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+The frontend needs `frontend/.env.local` when run outside compose:
+
+```
+NEXT_PUBLIC_API_URL=http://localhost:8000
+NEXT_PUBLIC_WS_URL=ws://localhost:8000
+```
 
 **Local development without Docker:**
 
@@ -239,8 +263,9 @@ frontend/components/
   CreateTaskModal.tsx         New task form
 frontend/lib/
   api.ts                      Typed client for every backend endpoint + WebSocket factory
-  mock-data.ts                All static mock data (UI still reads this until the wiring session)
-  analytics-mock-data.ts      Mock data for cost analytics chart
+  store.tsx                   Global React Context store (agents/tasks/pipelines/notifications)
+  mock-data.ts                Mock-phase data — kept as reference only, no page imports it
+  analytics-mock-data.ts      Mock-phase analytics data (reference only)
 frontend/types/
   index.ts                    Mock-phase interfaces + Phase 2 backend wire types
 ```

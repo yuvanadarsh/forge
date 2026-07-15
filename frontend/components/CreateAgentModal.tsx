@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { Agent } from "@/types";
+import { createAgent } from "@/lib/api";
+import type { BackendAgent } from "@/types";
 
 const COLOR_PRESETS = [
   "#6366f1",
@@ -85,16 +86,20 @@ const PRESET_KEYS = Object.keys(ROLE_PRESETS);
 
 interface Props {
   onClose: () => void;
-  onCreate: (agent: Agent) => void;
+  /** Called with the persisted agent after a successful POST. */
+  onCreate: (agent: BackendAgent) => void;
+  /** Called with the API error message; the modal stays open. */
+  onError?: (message: string) => void;
 }
 
-export default function CreateAgentModal({ onClose, onCreate }: Props) {
+export default function CreateAgentModal({ onClose, onCreate, onError }: Props) {
   const [preset, setPreset] = useState("CEO");
   const [role, setRole] = useState(ROLE_PRESETS.CEO.role);
   const [specialty, setSpecialty] = useState(ROLE_PRESETS.CEO.specialty);
   const [systemPrompt, setSystemPrompt] = useState(ROLE_PRESETS.CEO.system_prompt);
   const [name, setName] = useState("");
   const [color, setColor] = useState(COLOR_PRESETS[0]);
+  const [submitting, setSubmitting] = useState(false);
 
   function handlePresetChange(key: string) {
     setPreset(key);
@@ -104,22 +109,23 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
     setSystemPrompt(p.system_prompt);
   }
 
-  function handleCreate() {
-    const agent: Agent = {
-      id: `agent-${Date.now()}`,
-      name,
-      role,
-      specialty,
-      avatar_color: color,
-      model: "claude-sonnet-4-6",
-      system_prompt: systemPrompt,
-      status: "idle",
-      last_active: new Date().toISOString(),
-      tokens_used: 0,
-      cost_usd: 0,
-      created_at: new Date().toISOString(),
-    };
-    onCreate(agent);
+  async function handleCreate() {
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const agent = await createAgent({
+        name: name.trim(),
+        role: role.trim() || "Agent",
+        specialty,
+        avatar_color: color,
+        system_prompt: systemPrompt,
+      });
+      onCreate(agent);
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : "Failed to create agent");
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   const inputStyle = {
@@ -282,11 +288,14 @@ export default function CreateAgentModal({ onClose, onCreate }: Props) {
           </button>
           <button
             onClick={handleCreate}
-            disabled={!name.trim()}
+            disabled={!name.trim() || submitting}
             className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
-            style={{ background: name.trim() ? "#f59e0b" : "#2a2a2a", color: name.trim() ? "#0a0a0a" : "#3f3f46" }}
+            style={{
+              background: name.trim() && !submitting ? "#f59e0b" : "#2a2a2a",
+              color: name.trim() && !submitting ? "#0a0a0a" : "#3f3f46",
+            }}
           >
-            Create Agent
+            {submitting ? "Creating…" : "Create Agent"}
           </button>
         </div>
       </div>

@@ -34,11 +34,20 @@ https://github.com/yuvanadarsh/forge.git
 Now building the real FastAPI backend, LangGraph orchestration, WebSocket streaming,
 and restructuring the repo into a monorepo.~~
 
-PHASE 2 STARTED — backend foundation complete (Session 5, 2026-07-15): monorepo
+~~PHASE 2 STARTED — backend foundation complete (Session 5, 2026-07-15): monorepo
 restructure, FastAPI + all 6 routers, 13-table schema, LangGraph orchestration with
 approval gates, WebSocket streaming, agent executor, tool registry, encrypted key
 vault, Docker setup, and the typed frontend API client (lib/api.ts).
-NEXT SESSION: wire the UI — replace lib/mock-data.ts reads with lib/api.ts calls.
+NEXT SESSION: wire the UI — replace lib/mock-data.ts reads with lib/api.ts calls.~~
+
+PHASE 2 COMPLETE (Session 6, 2026-07-15): every page wired to the live backend —
+global store (lib/store.tsx), WebSocket pipeline chat, real key vault + security
+settings UI, analytics endpoints, single-agent chat replies (chat_reply), loading/
+error/empty states. Mock data files kept as reference; nothing imports them.
+
+PHASE 3 — Real agent execution and pipeline testing: run pipelines end-to-end with
+a real Anthropic key (streamed tokens, live approval gates), wire the task "Run →"
+button to agent execution, add pipeline creation UI.
 
 ## Tech Stack — Frontend
 
@@ -179,9 +188,14 @@ frontend/
     EmbeddingsSection.tsx, ExportSection.tsx
     AgentStatCards.tsx, ApprovalGateCard.tsx, NotificationBell.tsx
   types/index.ts
-  lib/mock-data.ts
-  lib/analytics-mock-data.ts
-  lib/api.ts                          — (to be created this session)
+  lib/mock-data.ts                    — reference only since Session 6 (no imports)
+  lib/analytics-mock-data.ts          — reference only since Session 6 (no imports)
+  lib/api.ts                          — typed client for every backend endpoint
+  lib/store.tsx                       — global Context+useReducer store (Session 6)
+  components/LoadingSkeleton.tsx      — card/row/text pulse skeletons (Session 6)
+  components/ErrorState.tsx           — error card with retry (Session 6)
+  components/EmptyState.tsx           — icon/title/CTA empty card (Session 6)
+  components/ErrorBanner.tsx          — global store.error banner in layout (Session 6)
 ```
 
 ## Backend File Structure (created in Session 5)
@@ -299,6 +313,63 @@ backend/
 - Everything DB/HTTP-level tested against local Postgres; orchestrator interrupt/resume
   verified with a stubbed executor; real LLM calls untested (no live API key)
 - Docker daemon wasn't running locally: `docker compose config` validated, image builds not run
+
+### Session 6 (2026-07-15) — Frontend wiring
+
+**Global store pattern (lib/store.tsx)**
+- React Context + useReducer, no external library; file is .tsx (provider renders JSX)
+- ForgeProvider fetches agents/tasks/pipelines/notifications in parallel on mount
+  via Promise.allSettled — partial failures populate what loaded and set store.error
+  (rendered by the dismissible ErrorBanner in layout.tsx, Retry calls store.reload())
+- Discriminated-union actions: SET_*/ADD_*/UPDATE_*/DELETE_AGENT/MARK_NOTIFICATION_*
+  /SET_LOADING/SET_ERROR; hooks useForge()/useAgent(id)/usePipeline(id)
+- Store holds Backend* wire types; components' props widened from mock Agent/Task to
+  BackendAgent/BackendTask (mock types remain assignable, so nothing else broke)
+- Optimistic mutation pattern: dispatch optimistic UPDATE_* → await PATCH → dispatch
+  server truth; revert to the saved previous object + toast on error
+
+**WebSocket handling pattern (pipelines/[id]/chat)**
+- Persisted history (conversation messages) and live socket items are SEPARATE lists;
+  live items: stream (token accumulation per agent), tool (call + attached result),
+  gate, note. On 'complete' the live list is dropped and DB messages reloaded — the
+  executor persisted everything, so DB truth replaces the stream without duplicates
+- token events append to the trailing stream item only if agent_id matches, else a
+  new bubble starts (agent handoffs split correctly)
+- tool_result attaches to the newest tool item without a result (executor is
+  sequential within an agent)
+- Active run detection: pipeline detail current_run in (running|paused_for_approval|
+  approved); otherwise a banner offers "Approve & Start" (POST /approve also restarts
+  completed/failed pipelines)
+- UI mirrors the orchestrator's conversation pick: OLDEST conversation with that
+  pipeline_id (orchestrator _get_or_create_conversation orders by created_at)
+
+**Backend endpoints added this session**
+- GET /api/token-usage?agent_id&interval=day|week|month|all — bucketed sums
+  (hour/day/week/month via date_trunc); frontend zero-fills fixed UTC slot ranges
+- GET /api/analytics/cost?interval&providers= — per provider+model+bucket slices;
+  bucket label = ISO timestamp, frontend formats labels + assigns provider palettes
+- GET /api/agents/{id}/runs — runs of pipelines containing the agent, with the
+  agent's per-run token/cost sums (token_usage outerjoin), newest first, limit 50
+- POST /api/settings/api-keys/{id}/test — decrypts and probes the provider
+  (anthropic /v1/models, voyage 1-token embed, openai /v1/models, else base_url
+  /models); returns {success, message}, never raises for a bad key
+- POST /api/settings/reembed — stub returning {"status": "coming_soon"}
+- POST /conversations/{id}/messages now returns SendMessageOut {user_message,
+  assistant_message, error}: agent conversations run agent_executor.chat_reply()
+  (single non-streaming completion, no tools, memory recall, history merged to
+  user-first alternating turns); pipeline conversations never auto-reply; reply
+  failures return error text WITHOUT losing the saved user message
+
+**Other decisions**
+- frontend/.env.local (gitignored): NEXT_PUBLIC_API_URL + NEXT_PUBLIC_WS_URL
+- Settings page has a new "Security & Execution" card (terminal_execution dropdown,
+  strict_mode toggle, allowed/denied command textareas one-per-line) → PATCH /api/settings
+- AddProviderModal now requires a key (vault stores encrypted keys, min 4 chars)
+- Postgres date_trunc runs in the server session timezone (buckets land at 04:00Z
+  for EDT); frontend matches points to slots by time-range, not exact equality
+- zsh `echo` mangles \n inside JSON — use printf when piping curl responses
+- Smoke test (Playwright, live backend): all flows pass; streamed tokens + live
+  gates need a real Anthropic key (fake key verifies the error paths end-to-end)
 
 ## CLAUDE.md Rules
 

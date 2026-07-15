@@ -297,6 +297,124 @@ async def _execute_tool(
     raise ToolError(f"Unknown tool: {name}")
 
 
+CHAT_HISTORY_LIMIT = 40
+CHAT_MAX_OUTPUT_TOKENS = 4096
+
+
+async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
+    """Basic single-agent chat turn: one non-streaming completion, no tools.
+
+    Used by POST /conversations/{id}/messages for agent conversations (not
+    pipeline runs). Persists the assistant Message + TokenUsage and returns
+    the message; returns None for pipeline-level conversations. Raises
+    ExecutionError when no Anthropic key is configured.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        conversation = await db.get(Conversation, conversation_id)
+        if conversation is None or conversation.agent_id is None:
+            return None
+        agent = await db.get(Agent, conversation.agent_id)
+        if agent is None:
+            return None
+        settings = (await db.execute(select(Settings))).scalar_one_or_none()
+
+        rows = await db.execute(
+            select(Message)
+            .where(Message.conversation_id == conversation_id)
+            .order_by(Message.created_at.desc())
+            .limit(CHAT_HISTORY_LIMIT)
+        )
+        history = list(reversed(rows.scalars().all()))
+
+        latest_user = next(
+            (m.content for m in reversed(history) if m.role == "user"), ""
+        )
+        memories = await memory_service.search_memories(
+            db, agent.id, latest_user, top_k=5, threshold=0.3
+        )
+        client = await _anthropic_client(db)
+        agent.status = "working"
+        agent.last_active = datetime.now(timezone.utc)
+        await db.commit()
+
+    parts = [agent.system_prompt.strip() or f"You are {agent.name}, a {agent.role}."]
+    if settings is not None and settings.global_rules.strip():
+        parts.append(f"## Operator rules\n{settings.global_rules.strip()}")
+    if memories:
+        memory_lines = "\n".join(f"- {m.content[:500]}" for m in memories)
+        parts.append(f"## Relevant context from your past work\n{memory_lines}")
+    system_prompt = "\n\n".join(parts)
+
+    # Anthropic requires user-first, alternating roles: merge consecutive
+    # same-role messages and drop anything before the first user turn.
+    merged: list[dict] = []
+    for m in history:
+        if m.role not in ("user", "assistant") or not m.content.strip():
+            continue
+        if merged and merged[-1]["role"] == m.role:
+            merged[-1]["content"] += f"\n\n{m.content}"
+        else:
+            merged.append({"role": m.role, "content": m.content})
+    while merged and merged[0]["role"] != "user":
+        merged.pop(0)
+    if not merged:
+        return None
+
+    try:
+        response = await client.messages.create(
+            model=agent.model,
+            max_tokens=CHAT_MAX_OUTPUT_TOKENS,
+            system=system_prompt,
+            messages=merged,
+        )
+    except Exception as exc:
+        async with session_factory() as db:
+            agent_row = await db.get(Agent, agent.id)
+            if agent_row is not None:
+                agent_row.status = "idle"
+                await db.commit()
+        raise ExecutionError(f"Anthropic call failed: {exc}") from exc
+
+    text = "".join(b.text for b in response.content if b.type == "text")
+    input_tokens = response.usage.input_tokens
+    output_tokens = response.usage.output_tokens
+    cost = _cost(agent.model, input_tokens, output_tokens)
+
+    async with session_factory() as db:
+        reply = Message(
+            conversation_id=conversation_id,
+            agent_id=agent.id,
+            role="assistant",
+            content=text,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost_usd=cost,
+        )
+        db.add(reply)
+        db.add(
+            TokenUsage(
+                agent_id=agent.id,
+                provider="anthropic",
+                model=agent.model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost_usd=cost,
+            )
+        )
+        conv = await db.get(Conversation, conversation_id)
+        if conv is not None:
+            conv.last_message = text[:300]
+            conv.last_active = datetime.now(timezone.utc)
+        agent_row = await db.get(Agent, agent.id)
+        if agent_row is not None:
+            agent_row.status = "idle"
+            agent_row.last_active = datetime.now(timezone.utc)
+        await db.commit()
+        await db.refresh(reply)
+        return reply
+
+
 async def execute_agent(
     agent: Agent,
     task: Task,

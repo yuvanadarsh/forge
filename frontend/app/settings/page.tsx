@@ -1,12 +1,23 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Toast from "@/components/Toast";
 import AddProviderModal from "@/components/AddProviderModal";
-import ProviderRow from "@/components/ProviderRow";
+import ProviderRow, { type ProviderRowData } from "@/components/ProviderRow";
 import EmbeddingsSection from "@/components/EmbeddingsSection";
 import ExportSection from "@/components/ExportSection";
-import type { Provider } from "@/types";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import {
+  deleteApiKey,
+  getSettings,
+  listApiKeys,
+  testApiKey,
+  updateApiKey,
+  updateSettings,
+  addApiKey,
+} from "@/lib/api";
+import { useForge } from "@/lib/store";
+import type { ApiKeyInfo, ForgeSettings } from "@/types";
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
@@ -17,41 +28,152 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   );
 }
 
-const DEFAULT_PROVIDERS: Provider[] = [
-  { id: "anthropic", name: "Anthropic", isDefault: true },
+const TERMINAL_EXECUTION_OPTIONS: { value: ForgeSettings["terminal_execution"]; label: string }[] = [
+  { value: "always_proceed", label: "Always Proceed" },
+  { value: "request_review", label: "Request Review" },
+  { value: "agent_decides", label: "Agent Decides" },
 ];
 
+interface SecurityDraft {
+  terminal_execution: ForgeSettings["terminal_execution"];
+  strict_mode: boolean;
+  allowed_commands: string; // one per line in the textarea
+  denied_commands: string;
+}
+
+function toRow(key: ApiKeyInfo): ProviderRowData {
+  return {
+    id: key.id,
+    provider: key.provider,
+    name: key.name,
+    baseUrl: key.base_url,
+    maskedKey: key.masked_key,
+    isDefault: key.is_default,
+  };
+}
+
 export default function SettingsPage() {
-  const [providers, setProviders] = useState<Provider[]>(DEFAULT_PROVIDERS);
+  const { dispatch } = useForge();
+  // null = loading
+  const [keys, setKeys] = useState<ApiKeyInfo[] | null>(null);
+  const [settings, setSettings] = useState<ForgeSettings | null>(null);
+  const [security, setSecurity] = useState<SecurityDraft | null>(null);
+  const [savingSecurity, setSavingSecurity] = useState(false);
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  function saveKey(id: string, key: string) {
-    if (key.trim()) {
-      setProviders((prev) =>
-        prev.map((p) => (p.id === id ? { ...p, apiKey: key.trim() } : p))
-      );
+  const refreshKeys = useCallback(async () => {
+    setKeys(await listApiKeys());
+  }, []);
+
+  useEffect(() => {
+    refreshKeys().catch(() => {
+      setKeys([]);
+      setToast("Could not load API keys — is the backend running?");
+    });
+    getSettings()
+      .then((s) => {
+        setSettings(s);
+        dispatch({ type: "SET_SETTINGS", settings: s });
+        setSecurity({
+          terminal_execution: s.terminal_execution,
+          strict_mode: s.strict_mode,
+          allowed_commands: s.allowed_commands.join("\n"),
+          denied_commands: s.denied_commands.join("\n"),
+        });
+      })
+      .catch(() => setToast("Could not load settings — is the backend running?"));
+  }, [refreshKeys, dispatch]);
+
+  // The Anthropic row is always shown first; before a key exists it renders
+  // as a "Not configured" default row (no delete button).
+  const anthropicKey =
+    keys?.find((k) => k.provider.toLowerCase() === "anthropic" && k.is_default) ??
+    keys?.find((k) => k.provider.toLowerCase() === "anthropic");
+  const rows: ProviderRowData[] = [
+    anthropicKey
+      ? toRow(anthropicKey)
+      : { id: null, provider: "anthropic", name: "Anthropic", baseUrl: null, maskedKey: null, isDefault: true },
+    ...(keys ?? []).filter((k) => k.id !== anthropicKey?.id).map(toRow),
+  ];
+
+  async function handleSaveKey(row: ProviderRowData, key: string): Promise<boolean> {
+    try {
+      if (row.id === null) {
+        await addApiKey({
+          provider: row.provider,
+          name: row.name,
+          api_key: key,
+          is_default: row.isDefault,
+        });
+      } else {
+        await updateApiKey(row.id, { api_key: key });
+      }
+      await refreshKeys();
+      setToast(`${row.name} key saved`);
+      return true;
+    } catch (err) {
+      setToast(`Could not save key: ${err instanceof Error ? err.message : "unknown error"}`);
+      return false;
     }
   }
 
-  function deleteProvider(id: string) {
-    setProviders((prev) => prev.filter((p) => p.id !== id));
+  async function handleDelete(row: ProviderRowData) {
+    if (!row.id) return;
+    try {
+      await deleteApiKey(row.id);
+      await refreshKeys();
+      setToast(`${row.name} removed`);
+    } catch (err) {
+      setToast(`Could not delete: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   }
 
-  function handleAddProvider(provider: Provider) {
-    setProviders((prev) => [...prev, provider]);
-    setShowAddProvider(false);
+  async function handleTest(row: ProviderRowData) {
+    if (!row.id) {
+      setToast(`Add a ${row.name} key first, then test it.`);
+      return;
+    }
+    try {
+      const result = await testApiKey(row.id);
+      setToast(`${result.success ? "✓" : "✗"} ${result.message}`);
+    } catch (err) {
+      setToast(`Test failed: ${err instanceof Error ? err.message : "backend unreachable"}`);
+    }
+  }
+
+  async function saveSecurity() {
+    if (!security || savingSecurity) return;
+    setSavingSecurity(true);
+    const splitLines = (text: string) =>
+      text.split("\n").map((line) => line.trim()).filter(Boolean);
+    try {
+      const updated = await updateSettings({
+        terminal_execution: security.terminal_execution,
+        strict_mode: security.strict_mode,
+        allowed_commands: splitLines(security.allowed_commands),
+        denied_commands: splitLines(security.denied_commands),
+      });
+      setSettings(updated);
+      dispatch({ type: "SET_SETTINGS", settings: updated });
+      setToast("Security settings saved");
+    } catch (err) {
+      setToast(`Could not save settings: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setSavingSecurity(false);
+    }
   }
 
   const card = "rounded-xl border p-6 mb-6";
   const cardSt = { background: "#111111", borderColor: "#1f1f1f" };
+  const inputSt = { background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" };
 
   return (
     <div className="px-8 py-8 max-w-[720px] mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold" style={{ color: "#f5f5f5" }}>Settings</h1>
         <p className="text-sm mt-1" style={{ color: "#71717a" }}>
-          Manage API keys, embedding models, and data exports.
+          Manage API keys, security, embedding models, and data exports.
         </p>
       </div>
 
@@ -62,15 +184,19 @@ export default function SettingsPage() {
           subtitle="Keys are stored encrypted in the database — not in .env files"
         />
         <div className="space-y-3">
-          {providers.map((p) => (
-            <ProviderRow
-              key={p.id}
-              provider={p}
-              onSaveKey={saveKey}
-              onDelete={deleteProvider}
-              onTest={() => setToast("Coming soon — API key testing not yet wired.")}
-            />
-          ))}
+          {keys === null ? (
+            <LoadingSkeleton variant="row" count={2} />
+          ) : (
+            rows.map((row) => (
+              <ProviderRow
+                key={row.id ?? `default-${row.provider}`}
+                provider={row}
+                onSaveKey={handleSaveKey}
+                onDelete={handleDelete}
+                onTest={handleTest}
+              />
+            ))
+          )}
         </div>
         <button
           onClick={() => setShowAddProvider(true)}
@@ -86,20 +212,132 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      {/* Section 2: Embeddings */}
+      {/* Section 2: Security & Execution */}
       <div className={card} style={cardSt}>
-        <SectionHeader title="Embeddings" />
-        <EmbeddingsSection showToast={setToast} />
+        <SectionHeader
+          title="Security & Execution"
+          subtitle="Controls how much autonomy agents have when running commands"
+        />
+        {security === null ? (
+          <LoadingSkeleton variant="text" count={2} />
+        ) : (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
+                  Terminal Execution
+                </label>
+                <select
+                  value={security.terminal_execution}
+                  onChange={(e) =>
+                    setSecurity({
+                      ...security,
+                      terminal_execution: e.target.value as ForgeSettings["terminal_execution"],
+                    })
+                  }
+                  className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border cursor-pointer transition-colors duration-150"
+                  style={inputSt}
+                >
+                  {TERMINAL_EXECUTION_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>{o.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
+                  Strict Mode
+                </label>
+                <button
+                  onClick={() => setSecurity({ ...security, strict_mode: !security.strict_mode })}
+                  className="flex items-center gap-3 px-3 py-2.5 rounded-lg border w-full transition-colors duration-150"
+                  style={{ background: "#0d0d0d", borderColor: security.strict_mode ? "#f59e0b" : "#1f1f1f" }}
+                >
+                  <span
+                    className="relative inline-block w-9 h-5 rounded-full transition-colors duration-150 shrink-0"
+                    style={{ background: security.strict_mode ? "#f59e0b" : "#2a2a2a" }}
+                  >
+                    <span
+                      className="absolute top-0.5 w-4 h-4 rounded-full transition-transform duration-150"
+                      style={{
+                        background: security.strict_mode ? "#0a0a0a" : "#71717a",
+                        transform: security.strict_mode ? "translateX(18px)" : "translateX(2px)",
+                      }}
+                    />
+                  </span>
+                  <span className="text-sm" style={{ color: security.strict_mode ? "#f5f5f5" : "#71717a" }}>
+                    {security.strict_mode ? "On — approve every action" : "Off"}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
+                Allowed Commands <span style={{ color: "#3f3f46" }}>(one per line — always run)</span>
+              </label>
+              <textarea
+                value={security.allowed_commands}
+                onChange={(e) => setSecurity({ ...security, allowed_commands: e.target.value })}
+                rows={3}
+                placeholder={"ls\ngit status"}
+                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border font-mono resize-none transition-colors duration-150"
+                style={inputSt}
+                onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
+                onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
+                Denied Commands <span style={{ color: "#3f3f46" }}>(one per line — always blocked)</span>
+              </label>
+              <textarea
+                value={security.denied_commands}
+                onChange={(e) => setSecurity({ ...security, denied_commands: e.target.value })}
+                rows={3}
+                placeholder={"rm -rf\nsudo"}
+                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border font-mono resize-none transition-colors duration-150"
+                style={inputSt}
+                onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
+                onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+              />
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={saveSecurity}
+                disabled={savingSecurity}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
+                style={{ background: savingSecurity ? "#2a2a2a" : "#f59e0b", color: savingSecurity ? "#3f3f46" : "#0a0a0a" }}
+              >
+                {savingSecurity ? "Saving…" : "Save Security Settings"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Section 3: Export Data */}
+      {/* Section 3: Embeddings */}
+      <div className={card} style={cardSt}>
+        <SectionHeader title="Embeddings" />
+        <EmbeddingsSection embeddingModel={settings?.embedding_model ?? null} showToast={setToast} />
+      </div>
+
+      {/* Section 4: Export Data */}
       <div className={card} style={cardSt}>
         <SectionHeader title="Export Data" subtitle="Download all your data as formatted JSON files" />
-        <ExportSection />
+        <ExportSection showToast={setToast} />
       </div>
 
       {showAddProvider && (
-        <AddProviderModal onClose={() => setShowAddProvider(false)} onAdd={handleAddProvider} />
+        <AddProviderModal
+          onClose={() => setShowAddProvider(false)}
+          onAdd={(created) => {
+            setShowAddProvider(false);
+            refreshKeys().catch(() => {});
+            setToast(`${created.name} added`);
+          }}
+          onError={(message) => setToast(`Could not add provider: ${message}`)}
+        />
       )}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>

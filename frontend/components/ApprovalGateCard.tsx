@@ -5,16 +5,43 @@ import { useState } from "react";
 interface Props {
   summary: string;
   whatNext: string;
-  onApprove?: () => void;
+  /** Initial gate state from the backend (defaults to pending). */
+  status?: "pending" | "approved" | "changes_requested";
+  /** Resolve true when the approval API call succeeded. */
+  onApprove?: () => Promise<boolean> | boolean | void;
+  /** Send change-request feedback; the gate stays open. */
+  onSendFeedback?: (feedback: string) => void;
 }
 
-export default function ApprovalGateCard({ summary, whatNext, onApprove }: Props) {
-  const [state, setState] = useState<"pending" | "approved" | "changes">("pending");
+export default function ApprovalGateCard({
+  summary,
+  whatNext,
+  status = "pending",
+  onApprove,
+  onSendFeedback,
+}: Props) {
+  const [state, setState] = useState<"pending" | "approved" | "changes">(
+    status === "approved" ? "approved" : "pending",
+  );
   const [feedback, setFeedback] = useState("");
+  const [approving, setApproving] = useState(false);
 
-  function handleApprove() {
-    setState("approved");
-    onApprove?.();
+  async function handleApprove() {
+    if (approving) return;
+    setApproving(true);
+    try {
+      const result = await onApprove?.();
+      if (result !== false) setState("approved");
+    } finally {
+      setApproving(false);
+    }
+  }
+
+  function handleSendFeedback() {
+    if (!feedback.trim()) return;
+    onSendFeedback?.(feedback.trim());
+    setFeedback("");
+    setState("pending"); // gate stays open awaiting the next decision
   }
 
   return (
@@ -31,7 +58,7 @@ export default function ApprovalGateCard({ summary, whatNext, onApprove }: Props
       {state === "approved" ? (
         <div className="flex items-center gap-2">
           <span className="text-lg">✓</span>
-          <span className="text-sm font-semibold" style={{ color: "#22c55e" }}>Approved — pipeline continuing to Phase 2</span>
+          <span className="text-sm font-semibold" style={{ color: "#22c55e" }}>Approved — pipeline continuing</span>
         </div>
       ) : (
         <>
@@ -50,12 +77,13 @@ export default function ApprovalGateCard({ summary, whatNext, onApprove }: Props
           <div className="flex items-center gap-2">
             <button
               onClick={handleApprove}
+              disabled={approving}
               className="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors duration-150"
               style={{ background: "#166534", color: "#86efac", border: "1px solid #15803d" }}
               onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#14532d")}
               onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#166534")}
             >
-              Approve →
+              {approving ? "Approving…" : "Approve →"}
             </button>
             <button
               onClick={() => setState("changes")}
@@ -81,6 +109,7 @@ export default function ApprovalGateCard({ summary, whatNext, onApprove }: Props
                 onBlur={(e) => (e.target.style.borderColor = "#2a2a2a")}
               />
               <button
+                onClick={handleSendFeedback}
                 disabled={!feedback.trim()}
                 className="mt-2 px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors duration-150"
                 style={{

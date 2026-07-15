@@ -4,6 +4,7 @@
 
 import type {
   AgentCreatePayload,
+  AgentRun,
   AgentUpdatePayload,
   ApiKeyCreatePayload,
   ApiKeyInfo,
@@ -16,16 +17,22 @@ import type {
   BackendPipelineDetail,
   BackendTask,
   ConversationCreatePayload,
+  CostAnalyticsInterval,
+  CostAnalyticsResponse,
   ForgeSettings,
   ForgeSettingsUpdate,
+  KeyTestResult,
   MessagePage,
   NotificationItem,
   PipelineCreatePayload,
   PipelineRun,
   PipelineStreamEvent,
+  SendMessageResult,
   TaskCreatePayload,
   TaskListFilters,
   TaskUpdatePayload,
+  TokenUsageInterval,
+  TokenUsageSeries,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -94,6 +101,8 @@ export const getAgent = (agentId: string) =>
 export const updateAgent = (agentId: string, payload: AgentUpdatePayload) =>
   patch<BackendAgent>(`/api/agents/${agentId}`, payload);
 export const deleteAgent = (agentId: string) => del(`/api/agents/${agentId}`);
+export const listAgentRuns = (agentId: string) =>
+  get<AgentRun[]>(`/api/agents/${agentId}/runs`);
 
 // ---------------------------------------------------------------- settings
 
@@ -107,6 +116,17 @@ export const addApiKey = (payload: ApiKeyCreatePayload) =>
 export const updateApiKey = (keyId: string, payload: ApiKeyUpdatePayload) =>
   patch<ApiKeyInfo>(`/api/settings/api-keys/${keyId}`, payload);
 export const deleteApiKey = (keyId: string) => del(`/api/settings/api-keys/${keyId}`);
+export const testApiKey = (keyId: string) =>
+  post<KeyTestResult>(`/api/settings/api-keys/${keyId}/test`);
+export const reembedAllData = () => post<{ status: string }>("/api/settings/reembed");
+
+// ---------------------------------------------------------------- analytics
+
+export const getTokenUsage = (params: { agent_id?: string; interval?: TokenUsageInterval } = {}) =>
+  get<TokenUsageSeries>(`/api/token-usage${query({ ...params })}`);
+export const getCostAnalytics = (
+  params: { interval?: CostAnalyticsInterval; providers?: string } = {},
+) => get<CostAnalyticsResponse>(`/api/analytics/cost${query({ ...params })}`);
 
 // ---------------------------------------------------------------- pipelines
 
@@ -141,7 +161,7 @@ export const createConversation = (payload: ConversationCreatePayload) =>
 export const listMessages = (conversationId: string, page = 1) =>
   get<MessagePage>(`/api/conversations/${conversationId}/messages${query({ page: String(page) })}`);
 export const sendMessage = (conversationId: string, content: string) =>
-  post<BackendMessage>(`/api/conversations/${conversationId}/messages`, { content });
+  post<SendMessageResult>(`/api/conversations/${conversationId}/messages`, { content });
 export const deleteConversation = (conversationId: string) =>
   del(`/api/conversations/${conversationId}`);
 

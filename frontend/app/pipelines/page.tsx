@@ -2,14 +2,21 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { mockPipelines, mockAgents } from "@/lib/mock-data";
-import type { Pipeline } from "@/types";
+import { useRouter } from "next/navigation";
+import EmptyState from "@/components/EmptyState";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import Toast from "@/components/Toast";
+import { approvePipeline } from "@/lib/api";
+import { useForge } from "@/lib/store";
+import type { BackendPipeline } from "@/types";
 
-const STATUS_STYLES = {
+const STATUS_STYLES: Record<BackendPipeline["status"], { label: string; color: string; bg: string }> = {
   pending_approval: { label: "Pending Approval", color: "#f59e0b", bg: "#2a1a00" },
   approved: { label: "Approved", color: "#3b82f6", bg: "#0a1a2a" },
   running: { label: "Running", color: "#22c55e", bg: "#0a1a0a" },
+  paused_for_approval: { label: "Paused — Approval", color: "#f59e0b", bg: "#2a1a00" },
   completed: { label: "Completed", color: "#71717a", bg: "#1a1a1a" },
+  failed: { label: "Failed", color: "#ef4444", bg: "#1a0a0a" },
 };
 
 function MarkdownBlock({ content }: { content: string }) {
@@ -30,127 +37,172 @@ function MarkdownBlock({ content }: { content: string }) {
 }
 
 export default function PipelinesPage() {
-  const [pipelines] = useState<Pipeline[]>(mockPipelines);
+  const router = useRouter();
+  const { state, dispatch } = useForge();
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [approving, setApproving] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const { pipelines, agents, loading } = state;
+
+  async function handleApprove(pipeline: BackendPipeline) {
+    if (approving) return;
+    setApproving(pipeline.id);
+    try {
+      await approvePipeline(pipeline.id);
+      dispatch({
+        type: "SET_PIPELINES",
+        pipelines: state.pipelines.map((p) =>
+          p.id === pipeline.id ? { ...p, status: "running" as const } : p,
+        ),
+      });
+      router.push(`/pipelines/${pipeline.id}/chat`);
+    } catch (err) {
+      setToast(
+        `Could not approve pipeline: ${err instanceof Error ? err.message : "unknown error"}`,
+      );
+    } finally {
+      setApproving(null);
+    }
+  }
 
   return (
     <div className="px-8 py-8 max-w-[900px] mx-auto">
       <div className="mb-8">
         <h1 className="text-2xl font-bold" style={{ color: "#f5f5f5" }}>Pipelines</h1>
         <p className="text-sm mt-1" style={{ color: "#71717a" }}>
-          {pipelines.length} pipelines · {pipelines.filter((p) => p.status === "running").length} running
+          {loading.pipelines
+            ? "Loading pipelines…"
+            : `${pipelines.length} pipelines · ${pipelines.filter((p) => p.status === "running").length} running`}
         </p>
       </div>
 
-      <div className="flex flex-col gap-4">
-        {pipelines.map((pipeline) => {
-          const s = STATUS_STYLES[pipeline.status];
-          const isOpen = expanded === pipeline.id;
-          const pipelineAgents = pipeline.agents.map((aid) => mockAgents.find((a) => a.id === aid)).filter(Boolean);
+      {loading.pipelines ? (
+        <div className="flex flex-col gap-4">
+          <LoadingSkeleton variant="card" count={3} />
+        </div>
+      ) : pipelines.length === 0 ? (
+        <EmptyState
+          icon="⚙️"
+          title="No pipelines yet."
+          description="Pipelines are created from agent chats or the API."
+        />
+      ) : (
+        <div className="flex flex-col gap-4">
+          {pipelines.map((pipeline) => {
+            const s = STATUS_STYLES[pipeline.status] ?? STATUS_STYLES.completed;
+            const isOpen = expanded === pipeline.id;
+            const pipelineAgents = pipeline.agent_sequence
+              .map((aid) => agents.find((a) => a.id === aid))
+              .filter(Boolean);
 
-          return (
-            <div
-              key={pipeline.id}
-              className="rounded-xl border overflow-hidden"
-              style={{ background: "#111111", borderColor: "#1f1f1f" }}
-            >
-              {/* Header */}
-              <div className="flex items-start gap-4 p-5">
-                <button
-                  onClick={() => setExpanded(isOpen ? null : pipeline.id)}
-                  className="flex-1 text-left min-w-0"
-                >
-                  <div className="flex items-center gap-3 mb-1">
-                    <span className="text-base font-semibold" style={{ color: "#f5f5f5" }}>
-                      {pipeline.title}
-                    </span>
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full font-medium"
-                      style={{ color: s.color, background: s.bg }}
-                    >
-                      {s.label}
-                    </span>
-                  </div>
-                  <p className="text-sm mb-3" style={{ color: "#71717a" }}>{pipeline.description}</p>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {pipelineAgents.map((agent, idx) => {
-                      if (!agent) return null;
-                      return (
-                        <div key={agent.id} className="flex items-center gap-1">
-                          <span
-                            className="w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center"
-                            style={{ background: agent.avatar_color, color: "#fff" }}
-                          >
-                            {agent.name[0]}
-                          </span>
-                          <span className="text-xs" style={{ color: "#71717a" }}>{agent.name}</span>
-                          {idx < pipelineAgents.length - 1 && (
-                            <span className="text-xs mx-0.5" style={{ color: "#3f3f46" }}>→</span>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </button>
-
-                {/* Actions */}
-                <div className="flex items-center gap-2 shrink-0 mt-0.5">
-                  <Link
-                    href={`/pipelines/${pipeline.id}/chat`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
-                    style={{ background: "#1f1f1f", color: "#f59e0b" }}
-                    onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#2a1a00"; }}
-                    onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#1f1f1f"; }}
-                  >
-                    Open Pipeline Chat →
-                  </Link>
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
+            return (
+              <div
+                key={pipeline.id}
+                className="rounded-xl border overflow-hidden"
+                style={{ background: "#111111", borderColor: "#1f1f1f" }}
+              >
+                {/* Header */}
+                <div className="flex items-start gap-4 p-5">
+                  <button
                     onClick={() => setExpanded(isOpen ? null : pipeline.id)}
-                    className="cursor-pointer transition-transform duration-150"
-                    style={{ color: "#71717a", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                    className="flex-1 text-left min-w-0"
                   >
-                    <polyline points="6 9 12 15 18 9" />
-                  </svg>
-                </div>
-              </div>
-
-              {/* Expanded plan */}
-              {isOpen && (
-                <div className="border-t px-5 py-5" style={{ borderColor: "#1f1f1f" }}>
-                  <h3 className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: "#71717a" }}>
-                    Execution Plan
-                  </h3>
-                  <MarkdownBlock content={pipeline.plan_md} />
-                  {pipeline.status === "pending_approval" && (
-                    <div className="mt-6 flex gap-3">
-                      <button
-                        className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
-                        style={{ background: "#22c55e", color: "#0a0a0a" }}
+                    <div className="flex items-center gap-3 mb-1">
+                      <span className="text-base font-semibold" style={{ color: "#f5f5f5" }}>
+                        {pipeline.title}
+                      </span>
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-medium"
+                        style={{ color: s.color, background: s.bg }}
                       >
-                        Approve Pipeline
-                      </button>
-                      <button
-                        className="px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150"
-                        style={{ background: "#1f1f1f", color: "#71717a" }}
-                      >
-                        Request Changes
-                      </button>
+                        {s.label}
+                      </span>
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                    <p className="text-sm mb-3" style={{ color: "#71717a" }}>{pipeline.description}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {pipelineAgents.map((agent, idx) => {
+                        if (!agent) return null;
+                        return (
+                          <div key={agent.id} className="flex items-center gap-1">
+                            <span
+                              className="w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center"
+                              style={{ background: agent.avatar_color, color: "#fff" }}
+                            >
+                              {agent.name[0]}
+                            </span>
+                            <span className="text-xs" style={{ color: "#71717a" }}>{agent.name}</span>
+                            {idx < pipelineAgents.length - 1 && (
+                              <span className="text-xs mx-0.5" style={{ color: "#3f3f46" }}>→</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </button>
 
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 shrink-0 mt-0.5">
+                    <Link
+                      href={`/pipelines/${pipeline.id}/chat`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
+                      style={{ background: "#1f1f1f", color: "#f59e0b" }}
+                      onMouseEnter={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#2a1a00"; }}
+                      onMouseLeave={(e) => { (e.currentTarget as HTMLAnchorElement).style.background = "#1f1f1f"; }}
+                    >
+                      Open Pipeline Chat →
+                    </Link>
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      onClick={() => setExpanded(isOpen ? null : pipeline.id)}
+                      className="cursor-pointer transition-transform duration-150"
+                      style={{ color: "#71717a", transform: isOpen ? "rotate(180deg)" : "rotate(0deg)" }}
+                    >
+                      <polyline points="6 9 12 15 18 9" />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Expanded plan */}
+                {isOpen && (
+                  <div className="border-t px-5 py-5" style={{ borderColor: "#1f1f1f" }}>
+                    <h3 className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: "#71717a" }}>
+                      Execution Plan
+                    </h3>
+                    <MarkdownBlock content={pipeline.plan_md || "*No execution plan provided.*"} />
+                    {pipeline.status === "pending_approval" && (
+                      <div className="mt-6 flex gap-3">
+                        <button
+                          onClick={() => handleApprove(pipeline)}
+                          disabled={approving === pipeline.id}
+                          className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
+                          style={{ background: "#22c55e", color: "#0a0a0a" }}
+                        >
+                          {approving === pipeline.id ? "Starting…" : "Approve Pipeline"}
+                        </button>
+                        <button
+                          className="px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-150"
+                          style={{ background: "#1f1f1f", color: "#71717a" }}
+                          onClick={() => setToast("Edit the plan via the pipeline chat before approving.")}
+                        >
+                          Request Changes
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

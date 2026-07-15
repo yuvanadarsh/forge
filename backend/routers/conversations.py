@@ -1,5 +1,6 @@
 """Conversations and messages router."""
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -11,6 +12,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.connection import get_db
 from db.models import Conversation, Message
+from services.agent_executor import ExecutionError, chat_reply
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
@@ -62,6 +66,14 @@ class MessagePage(BaseModel):
     page: int
     page_size: int
     total: int
+
+
+class SendMessageOut(BaseModel):
+    user_message: MessageOut
+    assistant_message: MessageOut | None = None
+    # Set when the user message was saved but the agent reply failed
+    # (e.g. no API key configured) — the client shows it as a toast.
+    error: str | None = None
 
 
 async def _get_conversation_or_404(conversation_id: uuid.UUID, db: AsyncSession) -> Conversation:
@@ -127,18 +139,37 @@ async def list_messages(
     )
 
 
-@router.post("/{conversation_id}/messages", response_model=MessageOut, status_code=201)
+@router.post("/{conversation_id}/messages", response_model=SendMessageOut, status_code=201)
 async def add_user_message(
     conversation_id: uuid.UUID, body: MessageCreate, db: AsyncSession = Depends(get_db)
-) -> Message:
+) -> SendMessageOut:
+    """Persist the user message; for agent conversations, also run one LLM
+    turn (chat_reply) and return the assistant message. Pipeline-level
+    conversations (agent_id null) never auto-reply here — their traffic
+    flows through the orchestrator + WebSocket."""
     conversation = await _get_conversation_or_404(conversation_id, db)
     message = Message(conversation_id=conversation_id, role="user", content=body.content)
     db.add(message)
     conversation.last_message = body.content[:300]
     conversation.last_active = datetime.now(timezone.utc)
+    is_agent_conversation = conversation.agent_id is not None
     await db.commit()
     await db.refresh(message)
-    return message
+    user_out = MessageOut.model_validate(message)
+
+    assistant_out: MessageOut | None = None
+    error: str | None = None
+    if is_agent_conversation:
+        try:
+            reply = await chat_reply(conversation_id)
+            if reply is not None:
+                assistant_out = MessageOut.model_validate(reply)
+        except ExecutionError as exc:
+            error = str(exc)
+        except Exception as exc:  # the saved user message must survive reply failures
+            logger.exception("chat_reply failed for conversation %s", conversation_id)
+            error = f"Agent reply failed: {exc}"
+    return SendMessageOut(user_message=user_out, assistant_message=assistant_out, error=error)
 
 
 @router.delete("/{conversation_id}", status_code=204)

@@ -1,13 +1,13 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
-import type { Agent } from "@/types";
+import type { BackendAgent } from "@/types";
 
 interface Props {
   value: string;
   onChange: (v: string) => void;
   onSend: () => void;
-  participants?: Agent[];
+  participants?: BackendAgent[];
 }
 
 export default function PipelineChatInput({ value, onChange, onSend, participants = [] }: Props) {
@@ -36,7 +36,7 @@ export default function PipelineChatInput({ value, onChange, onSend, participant
     ? participants.filter((a) => a.name.toLowerCase().startsWith(mentionQuery))
     : [];
 
-  function insertMention(agent: Agent) {
+  function insertMention(agent: BackendAgent) {
     const atIdx = value.lastIndexOf("@");
     const before = value.slice(0, atIdx);
     onChange(before + `@${agent.name} `);

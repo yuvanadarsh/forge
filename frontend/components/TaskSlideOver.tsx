@@ -1,6 +1,6 @@
 "use client";
 
-import type { Task, Agent } from "@/types";
+import type { BackendAgent, BackendTask, Task } from "@/types";
 
 const PRIORITY_STYLES: Record<Task["priority"], { label: string; color: string; bg: string }> = {
   low: { label: "Low", color: "#71717a", bg: "#1a1a1a" },
@@ -21,8 +21,8 @@ function formatDate(iso: string) {
 }
 
 interface Props {
-  task: Task;
-  agent?: Agent;
+  task: BackendTask;
+  agent?: BackendAgent;
   onClose: () => void;
 }
 

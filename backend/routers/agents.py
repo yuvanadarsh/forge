@@ -65,6 +65,19 @@ class AgentDetailOut(AgentOut):
     usage: UsageSummary
 
 
+class AgentRunOut(BaseModel):
+    id: uuid.UUID
+    pipeline_id: uuid.UUID
+    pipeline_title: str
+    status: str
+    current_agent_index: int
+    error: str | None
+    started_at: datetime
+    completed_at: datetime | None
+    tokens: int = 0  # this agent's usage within the run
+    cost_usd: float = 0.0
+
+
 def _agent_out(agent: Agent, tokens: int | None, cost: float | None) -> AgentOut:
     out = AgentOut.model_validate(agent)
     out.tokens_used = int(tokens or 0)
@@ -151,6 +164,47 @@ async def get_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> 
         ),
     )
     return out
+
+
+@router.get("/{agent_id}/runs", response_model=list[AgentRunOut])
+async def list_agent_runs(
+    agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> list[AgentRunOut]:
+    """Runs of every pipeline whose agent_sequence includes this agent, newest first."""
+    await _get_agent_or_404(agent_id, db)
+    usage = (
+        select(
+            TokenUsage.pipeline_run_id,
+            func.sum(TokenUsage.input_tokens + TokenUsage.output_tokens).label("tokens"),
+            func.sum(TokenUsage.cost_usd).label("cost"),
+        )
+        .where(TokenUsage.agent_id == agent_id)
+        .group_by(TokenUsage.pipeline_run_id)
+        .subquery()
+    )
+    rows = await db.execute(
+        select(PipelineRun, Pipeline.title, usage.c.tokens, usage.c.cost)
+        .join(Pipeline, PipelineRun.pipeline_id == Pipeline.id)
+        .outerjoin(usage, usage.c.pipeline_run_id == PipelineRun.id)
+        .where(Pipeline.agent_sequence.contains([agent_id]))
+        .order_by(PipelineRun.started_at.desc())
+        .limit(50)
+    )
+    return [
+        AgentRunOut(
+            id=run.id,
+            pipeline_id=run.pipeline_id,
+            pipeline_title=title,
+            status=run.status,
+            current_agent_index=run.current_agent_index,
+            error=run.error,
+            started_at=run.started_at,
+            completed_at=run.completed_at,
+            tokens=int(tokens or 0),
+            cost_usd=float(cost or 0),
+        )
+        for run, title, tokens, cost in rows.all()
+    ]
 
 
 @router.patch("/{agent_id}", response_model=AgentOut)
