@@ -11,7 +11,9 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ${FORGE_WORKSPACE:-~/forge-workspace}:/workspace
+      - ./backend:/app
+      - /app/.venv
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
   frontend:
@@ -21,6 +23,11 @@ services:
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_WS_URL=ws://localhost:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    command: npm run dev
     depends_on:
       - backend
     restart: unless-stopped
