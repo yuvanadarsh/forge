@@ -377,6 +377,31 @@ backend/
 - Smoke test (Playwright, live backend): all flows pass; streamed tokens + live
   gates need a real Anthropic key (fake key verifies the error paths end-to-end)
 
+### Session 7 (2026-07-15) — Chat/agent fixes + workspace, delete/rename conversation
+
+- workspace_path is set at pipeline creation (CreatePipelineModal: "New project" →
+  ~/forge-workspace/{title}/, or "Existing folder" → free-text path); POST
+  /api/pipelines defaults and os.makedirs(exist_ok=True) when not provided; shown
+  on the pipeline card and in the pipeline chat header
+- Task conversations require task_id to be set at conversation creation time —
+  the agent page's "+ General Chat" now shows a "Link to a task (optional)"
+  picker (this agent's tasks + "No task (general)") when the agent has tasks
+- GET /api/agents/{id}/runs already existed and was already correct
+  (Pipeline.agent_sequence.contains([agent_id]) compiles to the `@>` array
+  operator); "Run History empty" was empty test data, not a query bug — verified
+  by inserting a real pipeline/run/agent_sequence row and confirming the endpoint
+  returned it, not a code defect
+- Conversations can be renamed and deleted via a shared "⋯" ConversationMenu
+  component (agent conversation header + /chat row): Delete opens ConfirmDialog →
+  DELETE /api/conversations/{id} (already existed); Rename opens an inline title
+  edit (Enter/Escape) → new PATCH /api/conversations/{id} ({title}); both dispatch
+  UPDATE_CONVERSATION/DELETE_CONVERSATION so /chat's store-backed list and the
+  agent page's local sidebar list stay in sync without a refetch
+- Delete/rename share one row-layout restructure (Link content vs. the menu must
+  be siblings, not nested, or the menu's stopPropagation still lets the anchor's
+  native click through) — shipped as one commit rather than two, since splitting
+  by feature would leave an artificial half-wired intermediate state
+
 ## CLAUDE.md Rules
 
 - Update at end of every session with new decisions

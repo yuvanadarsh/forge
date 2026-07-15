@@ -41,6 +41,10 @@ class ConversationOut(BaseModel):
     created_at: datetime
 
 
+class ConversationUpdate(BaseModel):
+    title: str = Field(min_length=1)
+
+
 class MessageCreate(BaseModel):
     content: str = Field(min_length=1)
 
@@ -87,6 +91,7 @@ async def _get_conversation_or_404(conversation_id: uuid.UUID, db: AsyncSession)
 async def list_conversations(
     agent_id: uuid.UUID | None = Query(default=None),
     pipeline_id: uuid.UUID | None = Query(default=None),
+    task_id: uuid.UUID | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ) -> list[Conversation]:
     query = select(Conversation).order_by(
@@ -96,6 +101,8 @@ async def list_conversations(
         query = query.where(Conversation.agent_id == agent_id)
     if pipeline_id is not None:
         query = query.where(Conversation.pipeline_id == pipeline_id)
+    if task_id is not None:
+        query = query.where(Conversation.task_id == task_id)
     rows = await db.execute(query)
     return list(rows.scalars().all())
 
@@ -170,6 +177,17 @@ async def add_user_message(
             logger.exception("chat_reply failed for conversation %s", conversation_id)
             error = f"Agent reply failed: {exc}"
     return SendMessageOut(user_message=user_out, assistant_message=assistant_out, error=error)
+
+
+@router.patch("/{conversation_id}", response_model=ConversationOut)
+async def update_conversation(
+    conversation_id: uuid.UUID, body: ConversationUpdate, db: AsyncSession = Depends(get_db)
+) -> Conversation:
+    conversation = await _get_conversation_or_404(conversation_id, db)
+    conversation.title = body.title
+    await db.commit()
+    await db.refresh(conversation)
+    return conversation
 
 
 @router.delete("/{conversation_id}", status_code=204)

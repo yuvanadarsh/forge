@@ -343,15 +343,22 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             ← Back to Pipelines
           </Link>
           <div className="flex items-center gap-3 min-w-0 flex-1">
-            <span className="text-sm font-semibold truncate" style={{ color: "#f5f5f5" }}>
-              {pipeline.title}
-            </span>
-            <span
-              className="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
-              style={{ color: s.color, background: s.bg }}
-            >
-              {s.label}
-            </span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-3">
+                <span className="text-sm font-semibold truncate" style={{ color: "#f5f5f5" }}>
+                  {pipeline.title}
+                </span>
+                <span
+                  className="text-xs px-2 py-0.5 rounded-full font-medium shrink-0"
+                  style={{ color: s.color, background: s.bg }}
+                >
+                  {s.label}
+                </span>
+              </div>
+              <span className="text-xs font-mono truncate block" style={{ color: "#3f3f46" }}>
+                {pipeline.workspace_path}
+              </span>
+            </div>
           </div>
         </div>
 

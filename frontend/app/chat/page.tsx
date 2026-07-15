@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
-import { listConversations } from "@/lib/api";
+import ConversationMenu from "@/components/ConversationMenu";
+import { listConversations, updateConversation } from "@/lib/api";
 import { useForge } from "@/lib/store";
 
 function timeAgo(iso: string | null) {
@@ -30,6 +31,8 @@ export default function ChatPage() {
   const { state, dispatch } = useForge();
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [titleDraft, setTitleDraft] = useState("");
 
   const agents = state.agents;
   const conversations = state.conversations;
@@ -69,6 +72,15 @@ export default function ChatPage() {
   });
 
   const busy = loading || state.loading.agents;
+
+  async function commitRename(conversationId: string) {
+    const title = titleDraft.trim();
+    setRenamingId(null);
+    const current = conversations.find((c) => c.id === conversationId);
+    if (!title || !current || title === current.title) return;
+    const updated = await updateConversation(conversationId, title);
+    dispatch({ type: "UPDATE_CONVERSATION", conversation: updated });
+  }
 
   return (
     <div className="px-8 py-8 max-w-[860px] mx-auto">
@@ -110,9 +122,8 @@ export default function ChatPage() {
           style={{ borderColor: "#1f1f1f" }}
         >
           {rows.map(({ agent, conv, pair }, i) => (
-            <Link
+            <div
               key={conv.id}
-              href={`/agents/${agent.id}/conversations/${conv.id}`}
               className="flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[#161616]"
               style={{
                 borderLeft: `3px solid ${pair[0]}`,
@@ -120,46 +131,79 @@ export default function ChatPage() {
                 background: "#111111",
               }}
             >
-              {/* Avatar */}
-              <div
-                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
-                style={{ background: `linear-gradient(to right, ${pair[0]}, ${pair[1]})`, color: "#fff" }}
+              <Link
+                href={`/agents/${agent.id}/conversations/${conv.id}`}
+                className="flex items-center gap-3 flex-1 min-w-0"
               >
-                {agent.name[0]}
-              </div>
+                {/* Avatar */}
+                <div
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
+                  style={{ background: `linear-gradient(to right, ${pair[0]}, ${pair[1]})`, color: "#fff" }}
+                >
+                  {agent.name[0]}
+                </div>
 
-              {/* Agent name · role */}
-              <div className="shrink-0 flex items-center gap-1 min-w-[160px]">
-                <span className="text-xs font-semibold truncate" style={{ color: "#f5f5f5" }}>
-                  {agent.name}
+                {/* Agent name · role */}
+                <div className="shrink-0 flex items-center gap-1 min-w-[160px]">
+                  <span className="text-xs font-semibold truncate" style={{ color: "#f5f5f5" }}>
+                    {agent.name}
+                  </span>
+                  <span className="text-xs" style={{ color: "#3f3f46" }}>·</span>
+                  <span className="text-xs truncate" style={{ color: "#71717a" }}>
+                    {agent.role}
+                  </span>
+                </div>
+
+                {/* Separator */}
+                <span className="text-xs shrink-0" style={{ color: "#2a2a2a" }}>—</span>
+
+                {/* Conversation title */}
+                {renamingId === conv.id ? (
+                  <input
+                    autoFocus
+                    value={titleDraft}
+                    onChange={(e) => setTitleDraft(e.target.value)}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onBlur={() => commitRename(conv.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") commitRename(conv.id);
+                      if (e.key === "Escape") setRenamingId(null);
+                    }}
+                    className="text-xs font-medium shrink-0 max-w-[160px] outline-none border-b bg-transparent"
+                    style={{ color: "#f5f5f5", borderColor: "#f59e0b" }}
+                  />
+                ) : (
+                  <span className="text-xs font-medium shrink-0 truncate max-w-[160px]" style={{ color: "#a1a1aa" }}>
+                    {conv.title}
+                  </span>
+                )}
+
+                {/* Separator */}
+                <span className="text-xs shrink-0" style={{ color: "#2a2a2a" }}>—</span>
+
+                {/* Last message preview */}
+                <span className="text-xs truncate flex-1 min-w-0" style={{ color: "#71717a" }}>
+                  {conv.last_message ?? "No messages yet"}
                 </span>
-                <span className="text-xs" style={{ color: "#3f3f46" }}>·</span>
-                <span className="text-xs truncate" style={{ color: "#71717a" }}>
-                  {agent.role}
+
+                {/* Timestamp */}
+                <span className="text-xs shrink-0 ml-auto" style={{ color: "#3f3f46" }}>
+                  {timeAgo(conv.last_active)}
                 </span>
-              </div>
+              </Link>
 
-              {/* Separator */}
-              <span className="text-xs shrink-0" style={{ color: "#2a2a2a" }}>—</span>
-
-              {/* Conversation title */}
-              <span className="text-xs font-medium shrink-0 truncate max-w-[160px]" style={{ color: "#a1a1aa" }}>
-                {conv.title}
-              </span>
-
-              {/* Separator */}
-              <span className="text-xs shrink-0" style={{ color: "#2a2a2a" }}>—</span>
-
-              {/* Last message preview */}
-              <span className="text-xs truncate flex-1 min-w-0" style={{ color: "#71717a" }}>
-                {conv.last_message ?? "No messages yet"}
-              </span>
-
-              {/* Timestamp */}
-              <span className="text-xs shrink-0 ml-auto" style={{ color: "#3f3f46" }}>
-                {timeAgo(conv.last_active)}
-              </span>
-            </Link>
+              <ConversationMenu
+                conversationId={conv.id}
+                onRename={() => {
+                  setTitleDraft(conv.title);
+                  setRenamingId(conv.id);
+                }}
+                onDeleted={() => {}}
+              />
+            </div>
           ))}
         </div>
       )}

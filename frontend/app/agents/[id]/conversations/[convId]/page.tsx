@@ -7,7 +7,14 @@ import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { notFound } from "next/navigation";
 import Toast from "@/components/Toast";
-import { createConversation, listConversations, listMessages, sendMessage } from "@/lib/api";
+import ConversationMenu from "@/components/ConversationMenu";
+import {
+  createConversation,
+  listConversations,
+  listMessages,
+  sendMessage,
+  updateConversation,
+} from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendConversation, BackendMessage } from "@/types";
 
@@ -24,7 +31,7 @@ export default function ConversationPage({
 }) {
   const { id, convId } = use(params);
   const router = useRouter();
-  const { state } = useForge();
+  const { state, dispatch } = useForge();
 
   const agent = state.agents.find((a) => a.id === id) ?? null;
   const agentsLoading = state.loading.agents;
@@ -39,6 +46,8 @@ export default function ConversationPage({
   const [thinking, setThinking] = useState(false);
   const [input, setInput] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [titleDraft, setTitleDraft] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const conversation = agentConvos.find((c) => c.id === convId) ?? null;
@@ -140,6 +149,25 @@ export default function ConversationPage({
     }
   }
 
+  function startRename() {
+    if (!conversation) return;
+    setTitleDraft(conversation.title);
+    setRenaming(true);
+  }
+
+  async function commitRename() {
+    const title = titleDraft.trim();
+    setRenaming(false);
+    if (!conversation || !title || title === conversation.title) return;
+    try {
+      const updated = await updateConversation(conversation.id, title);
+      dispatch({ type: "UPDATE_CONVERSATION", conversation: updated });
+      setAgentConvos((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+    } catch (err) {
+      setToast(`Rename failed: ${err instanceof Error ? err.message : "backend unreachable"}`);
+    }
+  }
+
   if (!agentsLoading && agent === null) notFound();
 
   if (agent === null) {
@@ -201,14 +229,40 @@ export default function ConversationPage({
           >
             {agent.name[0]}
           </div>
-          <div>
-            <div className="text-sm font-semibold" style={{ color: "#f5f5f5" }}>
-              {conversation?.title ?? "General Chat"}
-            </div>
+          <div className="flex-1 min-w-0">
+            {renaming ? (
+              <input
+                autoFocus
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onBlur={commitRename}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename();
+                  if (e.key === "Escape") setRenaming(false);
+                }}
+                className="text-sm font-semibold outline-none border-b bg-transparent"
+                style={{ color: "#f5f5f5", borderColor: "#f59e0b" }}
+              />
+            ) : (
+              <div
+                className="text-sm font-semibold cursor-text"
+                style={{ color: "#f5f5f5" }}
+                onClick={startRename}
+              >
+                {conversation?.title ?? "General Chat"}
+              </div>
+            )}
             <div className="text-xs" style={{ color: "#71717a" }}>
               {task ? `Task: ${task.title}` : "General · " + agent.name}
             </div>
           </div>
+          {conversation && !isNew && (
+            <ConversationMenu
+              conversationId={conversation.id}
+              onRename={startRename}
+              onDeleted={() => router.push(`/agents/${id}`)}
+            />
+          )}
         </div>
 
         {/* Messages */}
