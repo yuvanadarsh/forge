@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import { mockTasks, mockAgents } from "@/lib/mock-data";
-import type { Task } from "@/types";
 import TaskCard from "@/components/TaskCard";
 import Toast from "@/components/Toast";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import TaskSlideOver from "@/components/TaskSlideOver";
+import LoadingSkeleton from "@/components/LoadingSkeleton";
+import { updateTask } from "@/lib/api";
+import { useForge } from "@/lib/store";
+import type { BackendTask, Task } from "@/types";
 
 const COLUMNS: { key: Task["status"]; label: string }[] = [
   { key: "backlog", label: "Backlog" },
@@ -16,14 +18,16 @@ const COLUMNS: { key: Task["status"]; label: string }[] = [
 ];
 
 export default function TasksPage() {
-  const [tasks, setTasks] = useState(mockTasks);
-  const [toast, setToast] = useState(false);
+  const { state, dispatch } = useForge();
+  const [toast, setToast] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [initialStatus, setInitialStatus] = useState<Task["status"]>("backlog");
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTask, setSelectedTask] = useState<BackendTask | null>(null);
 
-  function getAgent(id: string) {
-    return mockAgents.find((a) => a.id === id);
+  const { tasks, agents, loading } = state;
+
+  function getAgent(id: string | null) {
+    return id ? agents.find((a) => a.id === id) : undefined;
   }
 
   function openModal(status: Task["status"]) {
@@ -31,9 +35,21 @@ export default function TasksPage() {
     setShowModal(true);
   }
 
-  function handleMoveTask(taskId: string, status: Task["status"]) {
-    setTasks((prev) => prev.map((t) => t.id === taskId ? { ...t, status } : t));
-    if (selectedTask?.id === taskId) setSelectedTask((t) => t ? { ...t, status } : null);
+  async function handleMoveTask(task: BackendTask, status: Task["status"]) {
+    const previous = task;
+    const optimistic = { ...task, status };
+    // Optimistic: move the card immediately, revert if the PATCH fails.
+    dispatch({ type: "UPDATE_TASK", task: optimistic });
+    if (selectedTask?.id === task.id) setSelectedTask(optimistic);
+    try {
+      const updated = await updateTask(task.id, { status });
+      dispatch({ type: "UPDATE_TASK", task: updated });
+      if (selectedTask?.id === task.id) setSelectedTask(updated);
+    } catch (err) {
+      dispatch({ type: "UPDATE_TASK", task: previous });
+      if (selectedTask?.id === task.id) setSelectedTask(previous);
+      setToast(`Failed to move task: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   }
 
   return (
@@ -42,7 +58,7 @@ export default function TasksPage() {
         <div>
           <h1 className="text-2xl font-bold" style={{ color: "#f5f5f5" }}>Tasks</h1>
           <p className="text-sm mt-1" style={{ color: "#71717a" }}>
-            {tasks.length} tasks total
+            {loading.tasks ? "Loading tasks…" : `${tasks.length} tasks total`}
           </p>
         </div>
         <button
@@ -83,16 +99,27 @@ export default function TasksPage() {
                 </div>
               </div>
               <div className="flex flex-col gap-2 min-h-[120px]">
-                {colTasks.map((task) => (
-                  <TaskCard
-                    key={task.id}
-                    task={task}
-                    agent={getAgent(task.assigned_to)}
-                    onRun={() => setToast(true)}
-                    onClick={() => setSelectedTask(task)}
-                    onMove={(status) => handleMoveTask(task.id, status)}
-                  />
-                ))}
+                {loading.tasks ? (
+                  <LoadingSkeleton variant="row" count={2} />
+                ) : colTasks.length === 0 ? (
+                  <div
+                    className="rounded-xl border border-dashed flex items-center justify-center py-8 text-xs"
+                    style={{ borderColor: "#1f1f1f", color: "#3f3f46" }}
+                  >
+                    No tasks in {col.label.toLowerCase()}
+                  </div>
+                ) : (
+                  colTasks.map((task) => (
+                    <TaskCard
+                      key={task.id}
+                      task={task}
+                      agent={getAgent(task.assigned_to)}
+                      onRun={() => setToast("Coming soon — agent execution not yet wired.")}
+                      onClick={() => setSelectedTask(task)}
+                      onMove={(status) => handleMoveTask(task, status)}
+                    />
+                  ))
+                )}
               </div>
             </div>
           );
@@ -104,9 +131,11 @@ export default function TasksPage() {
           initialStatus={initialStatus}
           onClose={() => setShowModal(false)}
           onCreate={(task) => {
-            setTasks((prev) => [...prev, { ...task, assigned_to: task.assigned_to ?? "" }]);
+            dispatch({ type: "ADD_TASK", task });
             setShowModal(false);
+            setToast(`Task "${task.title}" created`);
           }}
+          onError={(message) => setToast(`Could not create task: ${message}`)}
         />
       )}
 
@@ -118,7 +147,7 @@ export default function TasksPage() {
         />
       )}
 
-      {toast && <Toast message="Coming soon — agent execution not yet wired." onClose={() => setToast(false)} />}
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }
