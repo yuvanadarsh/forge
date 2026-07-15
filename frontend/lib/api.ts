@@ -27,6 +27,7 @@ import type {
   PipelineCreatePayload,
   PipelineRun,
   PipelineStreamEvent,
+  SendMessageResult,
   TaskCreatePayload,
   TaskListFilters,
   TaskUpdatePayload,
@@ -160,7 +161,7 @@ export const createConversation = (payload: ConversationCreatePayload) =>
 export const listMessages = (conversationId: string, page = 1) =>
   get<MessagePage>(`/api/conversations/${conversationId}/messages${query({ page: String(page) })}`);
 export const sendMessage = (conversationId: string, content: string) =>
-  post<BackendMessage>(`/api/conversations/${conversationId}/messages`, { content });
+  post<SendMessageResult>(`/api/conversations/${conversationId}/messages`, { content });
 export const deleteConversation = (conversationId: string) =>
   del(`/api/conversations/${conversationId}`);
 

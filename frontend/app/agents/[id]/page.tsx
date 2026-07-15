@@ -2,12 +2,19 @@
 
 import { use, useEffect, useState } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, useRouter } from "next/navigation";
 import AgentStatCards from "@/components/AgentStatCards";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Toast from "@/components/Toast";
 import TokenUsageGraph from "@/components/TokenUsageGraph";
-import { ApiError, getAgent, listAgentRuns, listConversations, updateAgent } from "@/lib/api";
+import {
+  ApiError,
+  createConversation,
+  getAgent,
+  listAgentRuns,
+  listConversations,
+  updateAgent,
+} from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { AgentRun, BackendAgentDetail, BackendConversation } from "@/types";
 
@@ -42,6 +49,7 @@ const RUN_STATUS_STYLES: Record<string, { label: string; color: string; bg: stri
 
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const { state, dispatch } = useForge();
 
   const [agent, setAgent] = useState<BackendAgentDetail | null>(null);
@@ -269,13 +277,22 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#71717a" }}>
             Task Conversations
           </h2>
-          <Link
-            href={`/agents/${id}/conversations/new`}
+          <button
+            onClick={async () => {
+              try {
+                const created = await createConversation({ title: "General Chat", agent_id: id });
+                router.push(`/agents/${id}/conversations/${created.id}`);
+              } catch (err) {
+                setToast(
+                  `Could not start chat: ${err instanceof Error ? err.message : "unknown error"}`,
+                );
+              }
+            }}
             className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
             style={{ background: "#1f1f1f", color: "#f59e0b" }}
           >
             + General Chat
-          </Link>
+          </button>
         </div>
 
         {taskConvos.length === 0 && (

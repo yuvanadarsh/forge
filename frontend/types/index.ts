@@ -206,6 +206,13 @@ export interface MessagePage {
   total: number;
 }
 
+export interface SendMessageResult {
+  user_message: BackendMessage;
+  assistant_message: BackendMessage | null;
+  /** Set when the user message saved but the agent reply failed. */
+  error: string | null;
+}
+
 export interface NotificationItem {
   id: string;
   type: "pipeline_completed" | "pipeline_failed" | "approval_needed" | "agent_error" | "info";
