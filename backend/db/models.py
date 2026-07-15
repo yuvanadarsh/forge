@@ -12,6 +12,7 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    DateTime,
     ForeignKey,
     Integer,
     Numeric,
@@ -24,7 +25,10 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
 class Base(DeclarativeBase):
-    pass
+    # Every column in the migration is TIMESTAMPTZ; without this map,
+    # Mapped[datetime] binds as naive TIMESTAMP and asyncpg rejects
+    # timezone-aware values.
+    type_annotation_map = {datetime: DateTime(timezone=True)}
 
 
 class Agent(Base):
