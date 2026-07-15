@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
+import { ForgeProvider } from "@/lib/store";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -26,10 +27,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
       <body className="h-full flex" style={{ background: "#0a0a0a", color: "#f5f5f5" }}>
-        <Sidebar />
-        <main className="flex-1 ml-[220px] min-h-screen overflow-y-auto">
-          {children}
-        </main>
+        <ForgeProvider>
+          <Sidebar />
+          <main className="flex-1 ml-[220px] min-h-screen overflow-y-auto">
+            {children}
+          </main>
+        </ForgeProvider>
       </body>
     </html>
   );
