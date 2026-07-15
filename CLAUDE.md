@@ -30,9 +30,15 @@ https://github.com/yuvanadarsh/forge.git
 
 ## Current Phase
 
-PHASE 2 — Backend wiring. The mock UI in /frontend is complete (Sessions 1–4 done).
+~~PHASE 2 — Backend wiring. The mock UI in /frontend is complete (Sessions 1–4 done).
 Now building the real FastAPI backend, LangGraph orchestration, WebSocket streaming,
-and restructuring the repo into a monorepo.
+and restructuring the repo into a monorepo.~~
+
+PHASE 2 STARTED — backend foundation complete (Session 5, 2026-07-15): monorepo
+restructure, FastAPI + all 6 routers, 13-table schema, LangGraph orchestration with
+approval gates, WebSocket streaming, agent executor, tool registry, encrypted key
+vault, Docker setup, and the typed frontend API client (lib/api.ts).
+NEXT SESSION: wire the UI — replace lib/mock-data.ts reads with lib/api.ts calls.
 
 ## Tech Stack — Frontend
 
@@ -178,7 +184,7 @@ frontend/
   lib/api.ts                          — (to be created this session)
 ```
 
-## Backend File Structure (to be created this session)
+## Backend File Structure (created in Session 5)
 
 ```
 backend/
@@ -243,6 +249,56 @@ backend/
 - Agent-to-agent: relay_to_agent_name on PipelineChatMsg renders "→ AgentName" chip
 - NotificationBell: self-contained, mousedown outside-click handler, in Sidebar
 - Run history: collapsed by default, error rows have red left border
+
+### Session 5 (2026-07-15) — Backend foundation
+
+**Monorepo & tooling**
+- Next.js app moved to /frontend via `git mv` (history preserved); backend at /backend
+- requirements.txt pins voyageai==0.3.2 (correct for the python:3.11-slim Docker image);
+  local dev on Python 3.13 needs voyageai>=0.3.3 in its venv — the pin is Docker-first
+- .dockerignore files keep node_modules/.venv out of image build contexts
+- backend/.env (gitignored) holds local DATABASE_URL + SECRET_KEY; root .env feeds compose
+
+**Database**
+- SQLAlchemy 2.0 mapped_column models mirror migrations/001_initial.sql (SQL is source of truth)
+- `Base.type_annotation_map = {datetime: DateTime(timezone=True)}` is REQUIRED — every
+  migration column is TIMESTAMPTZ, and without the map asyncpg rejects aware datetimes
+- agents.tokens_used / cost_usd are never stored — always aggregated from token_usage
+- api_keys stores key_last4 so list endpoints mask ("••••••••abcd") without decrypting
+
+**Crypto**
+- AES-256-GCM; stored format base64(12-byte nonce || ciphertext+tag); key = SHA-256(SECRET_KEY)
+- `python -m services.crypto` runs the round-trip self-test
+
+**Tool registry / security model**
+- Policy precedence: denied list (hard block) > strict_mode (approval for everything)
+  > allowed list (always runs) > terminal_execution mode
+- 'agent_decides' = allowlist-only; anything else still requires approval (safe reading)
+- Command list matching: exact or word-boundary prefix ("rm" blocks "rm -rf x", not "rmdir")
+- Path safety resolves symlinks before the containment check; run_command hard timeout 60s
+
+**Orchestration**
+- Two gate kinds share one resume flow: executor command gates and the orchestrator
+  phase gate both set pipeline_runs.status='paused_for_approval'; approve-gate endpoint
+  flips it to 'approved'; a 2s poller flips it back to 'running' and resumes
+- Phase gate placement: `<!-- gate_after: N -->` marker in plan_md wins; else a
+  "## Phase 2" heading gates after agent 0; else no gate (single-agent pipelines)
+- Phase gate uses LangGraph dynamic interrupt() as the FIRST statement of the gated
+  node (nodes re-execute from the top on resume); MemorySaver checkpointer is
+  process-local, which matches the single-backend deployment
+- If an agent has no task in the pipeline, the orchestrator synthesizes AND persists
+  one (agent_memory.source_task_id FK requires a real row)
+- Background runs are asyncio tasks held in a module-level set (GC protection)
+
+**Frontend API client**
+- lib/api.ts + "Backend*" wire types appended to types/index.ts; the mock-phase
+  interfaces are untouched so the existing UI keeps compiling until the wiring session
+- WS envelope is a discriminated union (PipelineStreamEvent) keyed on event type
+
+**Verification status**
+- Everything DB/HTTP-level tested against local Postgres; orchestrator interrupt/resume
+  verified with a stubbed executor; real LLM calls untested (no live API key)
+- Docker daemon wasn't running locally: `docker compose config` validated, image builds not run
 
 ## CLAUDE.md Rules
 

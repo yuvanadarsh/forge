@@ -58,22 +58,71 @@
 - [x] **Notification bell** — Amber badge on sidebar showing unread count; dropdown with color-coded activity feed; "Mark all read" clears badge
 - [x] **Agent run history** — Collapsible "RUN HISTORY" section on `/agents/[id]` with timestamp, task name, token/cost stats, success/error badge; error rows have red left border
 
-### Phase 2 — Backend Integration ⬜
+### Phase 2 — Backend Foundation ✅
 
-- [ ] Supabase database schema and migrations
-- [ ] CRUD API for agents, tasks, pipelines, conversations
-- [ ] Real-time updates via Supabase Realtime
-- [ ] Row Level Security policies
-- [ ] Replace mock data with live API calls
+- [x] **Monorepo restructure** — Next.js app moved to `/frontend`, FastAPI backend at `/backend`
+- [x] **FastAPI scaffold** — CORS, lifespan-managed DB engine, `/health`, WebSocket route
+- [x] **Database schema** — 13 tables (agents, pipelines, runs, tasks, conversations, messages, token_usage, logs, memory, notifications…) with pgvector + pgcrypto, plus async SQLAlchemy 2.0 models
+- [x] **Encrypted API key vault** — AES-256-GCM at rest, masked (`••••••••abcd`) in every response
+- [x] **Agents CRUD** — token usage aggregated live from the `token_usage` time series
+- [x] **Settings API** — single-row config incl. the terminal security model (allow/deny lists, strict mode)
+- [x] **Tool registry** — `read_file` / `write_file` / `run_command` / `search_codebase` with workspace containment, command policy gates, 60s timeouts, full audit logging
+- [x] **WebSocket streaming** — per-run socket pushing `token | tool_call | tool_result | status | gate | complete | error` envelopes
+- [x] **Agent executor** — streaming Anthropic tool loop with vector-memory recall (VoyageAI + pgvector), cost tracking, and command approval gates
+- [x] **LangGraph orchestrator** — sequential agent graph with `interrupt()` phase gates, DB-polled resume, completion/failure notifications
+- [x] **Tasks / Conversations / Notifications routers** — full CRUD with filters and pagination
+- [x] **Docker** — `docker compose up --build` runs both services against host Postgres
+- [x] **Typed API client** — `frontend/lib/api.ts` covering every endpoint + `createPipelineSocket()`
+
+### Phase 2.5 — Frontend Wiring ⬜ (next session)
+
+- [ ] Replace `lib/mock-data.ts` reads with `lib/api.ts` calls
+- [ ] Live pipeline chat rendering token deltas over WebSocket
 - [ ] Loading and error states throughout
+- [ ] Approval gate cards driven by real run status
 
-### Phase 3 — Live Agent Execution ⬜
+### Phase 3 — Hardening ⬜
 
-- [ ] Real LLM calls via Anthropic Claude API
-- [ ] Pipeline approval gate enforcement
 - [ ] Drag-and-drop kanban
-- [ ] Authentication (Supabase Auth)
-- [ ] Real-time agent status updates
+- [ ] Multi-provider LLM routing (OpenAI, Gemini)
+- [ ] Authentication
+- [ ] Cloud deployment
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────┐         ┌───────────────────────────────────────┐
+│   frontend (Next.js 16)  │  HTTP   │          backend (FastAPI)            │
+│   localhost:3000         │────────▶│          localhost:8000               │
+│                          │         │                                       │
+│   lib/api.ts ────────────┼──/api──▶│  routers: agents · pipelines · tasks  │
+│   createPipelineSocket ──┼──/ws───▶│   conversations · settings · notifs   │
+└──────────────────────────┘         │                  │                    │
+                                     │                  ▼                    │
+                                     │   orchestrator (LangGraph graph,      │
+                                     │   interrupt() approval gates)         │
+                                     │                  │                    │
+                                     │                  ▼                    │
+                                     │   agent_executor ──▶ Anthropic API    │
+                                     │     │  ├─ tool_registry (read/write/  │
+                                     │     │  │   run_command/search — all   │
+                                     │     │  │   confined to workspace)     │
+                                     │     │  └─ streaming_manager ──▶ WS    │
+                                     │     └─ memory_service ──▶ VoyageAI    │
+                                     └──────────────────┬────────────────────┘
+                                                        │ asyncpg
+                                                        ▼
+                                     ┌───────────────────────────────────────┐
+                                     │   PostgreSQL (host machine, :5432)    │
+                                     │   pgvector + pgcrypto · 13 tables     │
+                                     └───────────────────────────────────────┘
+```
+
+Agents execute pipelines sequentially; human approval gates pause the graph
+(`pipeline_runs.status = paused_for_approval`) until approved in the pipeline chat.
+Every file access and command is audit-logged and confined to the pipeline's workspace.
 
 ---
 
@@ -81,38 +130,58 @@
 
 | Layer | Tech |
 |---|---|
-| Framework | Next.js 16 (App Router) |
-| Language | TypeScript (strict) |
-| Styling | Tailwind CSS v4 |
-| Font | Geist (via `next/font/google`) |
-| Charts | recharts |
-| Markdown | react-markdown + rehype-highlight + remark-gfm + highlight.js |
-| State | React `useState` (mock phase) |
-| Data | Static mock data in `lib/mock-data.ts` |
+| Frontend | Next.js 16 (App Router), TypeScript (strict), Tailwind CSS v4, Geist |
+| Charts / Markdown | recharts · react-markdown + rehype-highlight + remark-gfm |
+| Backend | FastAPI (Python 3.11), async SQLAlchemy 2.0, asyncpg |
+| Orchestration | LangGraph (state graph, checkpointed interrupts) |
+| LLM / Embeddings | Anthropic SDK · VoyageAI (voyage-3, 1024-dim) |
+| Database | PostgreSQL on host with pgvector + pgcrypto |
+| Security | AES-256-GCM key vault, workspace path containment, command allow/deny lists |
+| Ops | Docker Compose (backend + frontend; DB stays on host) |
 
 No UI component library — everything built from scratch with Tailwind.
 
 ---
 
-## Run Locally
+## Getting Started
+
+**Prerequisites:** Docker, and PostgreSQL running on the host with the `pgvector`
+extension available (`brew install postgresql pgvector` on macOS).
 
 ```bash
-# Clone
+# 1. Clone
 git clone https://github.com/yuvanadarsh/forge.git
 cd forge
 
-# Install
-npm install
+# 2. Configure environment
+cp .env.example .env
+#    → fill in DB_USER / DB_PASSWORD / DB_NAME
+#    → SECRET_KEY: openssl rand -hex 32
+#    → VOYAGE_API_KEY (optional — memory search degrades gracefully without it)
 
-# Start dev server
-npm run dev
+# 3. Create the database and run the migration
+createdb forge
+psql -d forge -f backend/db/migrations/001_initial.sql
+
+# 4. Run everything
+docker compose up --build
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Frontend: [http://localhost:3000](http://localhost:3000) · API: [http://localhost:8000/health](http://localhost:8000/health) · Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-**Build check:**
+Anthropic API keys are added in the Settings UI (stored AES-256 encrypted in the DB), never in `.env`.
+
+**Local development without Docker:**
+
 ```bash
-npm run build
+# backend (Python 3.11+; on 3.13 install voyageai>=0.3.3)
+cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+echo "DATABASE_URL=postgresql+asyncpg://localhost:5432/forge" > .env
+echo "SECRET_KEY=$(openssl rand -hex 32)" >> .env
+.venv/bin/uvicorn main:app --reload --port 8000
+
+# frontend
+cd frontend && npm install && npm run dev
 ```
 
 ---
@@ -120,7 +189,24 @@ npm run build
 ## Project Structure
 
 ```
-app/
+backend/
+  main.py                     FastAPI entry point (CORS, lifespan, /health, /ws)
+  routers/                    agents · pipelines · tasks · conversations · settings · notifications
+  services/
+    orchestrator.py           LangGraph pipeline runner with approval-gate interrupts
+    agent_executor.py         Streaming Anthropic tool loop + cost/memory bookkeeping
+    tool_registry.py          read_file / write_file / run_command / search_codebase
+    memory_service.py         VoyageAI embeddings + pgvector similarity search
+    streaming.py              Per-run WebSocket manager (typed event envelopes)
+    crypto.py                 AES-256-GCM API key encryption
+  db/
+    connection.py             Async engine, session factory, get_db dependency
+    models.py                 SQLAlchemy 2.0 models (13 tables)
+    migrations/001_initial.sql
+  requirements.txt · Dockerfile
+docker-compose.yml            backend + frontend, host Postgres via host.docker.internal
+
+frontend/app/
   page.tsx                    Dashboard (/ — agent grid + kanban + cost analytics graph)
   layout.tsx                  Root layout + sidebar
   agents/page.tsx             Agent registry
@@ -131,7 +217,7 @@ app/
   pipelines/[id]/chat/page.tsx  Three-panel pipeline chat (plan | chat | participants)
   tasks/page.tsx              Tasks kanban (move-to + slide-over)
   settings/page.tsx           Settings (dynamic provider vault, embeddings, export)
-components/
+frontend/components/
   Sidebar.tsx                 Fixed left navigation
   AgentCard.tsx               Gradient-border agent card (equal height)
   AgentStatCards.tsx          Lifetime/monthly/daily cost stat cards
@@ -151,11 +237,12 @@ components/
   Toast.tsx                   Fade toast notification
   CreateAgentModal.tsx        New agent form (role presets)
   CreateTaskModal.tsx         New task form
-lib/
-  mock-data.ts                All static mock data
+frontend/lib/
+  api.ts                      Typed client for every backend endpoint + WebSocket factory
+  mock-data.ts                All static mock data (UI still reads this until the wiring session)
   analytics-mock-data.ts      Mock data for cost analytics chart
-types/
-  index.ts                    TypeScript interfaces (Agent, Task, Pipeline, Conversation, Message, Provider)
+frontend/types/
+  index.ts                    Mock-phase interfaces + Phase 2 backend wire types
 ```
 
 ---
