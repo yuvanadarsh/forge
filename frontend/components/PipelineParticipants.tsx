@@ -1,6 +1,6 @@
 "use client";
 
-import type { Agent } from "@/types";
+import type { Agent, BackendAgent } from "@/types";
 
 const STATUS_DOT: Record<Agent["status"], string> = {
   idle: "#71717a",
@@ -9,7 +9,7 @@ const STATUS_DOT: Record<Agent["status"], string> = {
 };
 
 interface Props {
-  agents: Agent[];
+  agents: BackendAgent[];
 }
 
 export default function PipelineParticipants({ agents }: Props) {

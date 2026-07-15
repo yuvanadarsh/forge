@@ -2,7 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
-import type { Agent } from "@/types";
+import type { BackendAgent } from "@/types";
 
 export interface PipelineChatMsg {
   id: string;
@@ -33,7 +33,7 @@ function renderWithMentions(text: string) {
 
 interface Props {
   msg: PipelineChatMsg;
-  participants?: Agent[];
+  participants?: BackendAgent[];
 }
 
 export default function PipelineChatMessage({ msg, participants = [] }: Props) {
