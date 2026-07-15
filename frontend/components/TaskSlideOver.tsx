@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { listConversations } from "@/lib/api";
 import type { BackendAgent, BackendTask, Task } from "@/types";
 
 const PRIORITY_STYLES: Record<Task["priority"], { label: string; color: string; bg: string }> = {
@@ -28,6 +31,28 @@ interface Props {
 
 export default function TaskSlideOver({ task, agent, onClose }: Props) {
   const p = PRIORITY_STYLES[task.priority];
+  const router = useRouter();
+  const [checkingConvo, setCheckingConvo] = useState(false);
+  const [noConvo, setNoConvo] = useState(false);
+
+  async function handleViewConversation() {
+    if (checkingConvo) return;
+    setCheckingConvo(true);
+    setNoConvo(false);
+    try {
+      const convos = await listConversations({ task_id: task.id });
+      const conversation = convos[0];
+      if (conversation && conversation.agent_id) {
+        router.push(`/agents/${conversation.agent_id}/conversations/${conversation.id}`);
+      } else {
+        setNoConvo(true);
+      }
+    } catch {
+      setNoConvo(true);
+    } finally {
+      setCheckingConvo(false);
+    }
+  }
 
   return (
     <>
@@ -118,20 +143,23 @@ export default function TaskSlideOver({ task, agent, onClose }: Props) {
             <p className="text-sm" style={{ color: "#a1a1aa" }}>{formatDate(task.created_at)}</p>
           </div>
 
-          {/* View Conversation placeholder */}
+          {/* View Conversation */}
           <div className="pt-2 border-t" style={{ borderColor: "#1f1f1f" }}>
             <button
               className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150"
               style={{ background: "#1a1a1a", color: "#71717a" }}
-              onClick={() => {}}
+              disabled={checkingConvo}
+              onClick={handleViewConversation}
             >
-              <span>View Conversation</span>
+              <span>{checkingConvo ? "Looking…" : "View Conversation"}</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <line x1="5" y1="12" x2="19" y2="12" />
                 <polyline points="12 5 19 12 12 19" />
               </svg>
             </button>
-            <p className="text-xs mt-2 text-center" style={{ color: "#3f3f46" }}>Conversation linking coming soon</p>
+            {noConvo && (
+              <p className="text-xs mt-2 text-center" style={{ color: "#3f3f46" }}>No conversation yet</p>
+            )}
           </div>
         </div>
       </div>
