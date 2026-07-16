@@ -5,23 +5,38 @@ Runs as background tasks kicked off by POST /api/pipelines:
   first agent in the sequence). Always terminates in a populated plan_md —
   LLM failures fall back to an editable default template so the frontend's
   3-second poll never spins forever.
+- suggest_and_plan: auto_suggest mode — the CEO picks the agent sequence,
+  Atlas creates any missing agents, then plan generation runs. Same
+  guarantee: plan_md always ends up populated.
 
 No WebSocket notification is sent here: streams are keyed by pipeline_run_id
 and no run exists before approval — the frontend polls GET /api/pipelines/{id}.
 """
 
+import json
 import logging
+import re
 import uuid
 
 from sqlalchemy import select
 
 from db.connection import get_session_factory
 from db.models import Agent, Pipeline, TokenUsage
-from services.agent_executor import _anthropic_client, _cost
+from services.agent_executor import (
+    CREATE_AGENT_TOOL,
+    _anthropic_client,
+    _cost,
+    _dispatch_create_agent,
+)
+from services.tool_registry import create_agent
 
 logger = logging.getLogger(__name__)
 
 PLAN_MAX_OUTPUT_TOKENS = 4096
+SUGGEST_MAX_OUTPUT_TOKENS = 2048
+MAX_MISSING_AGENTS = 5  # cap how many new agents one suggestion may create
+
+ATLAS_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 DEFAULT_PLAN_TEMPLATE = """# Execution Plan: {title}
 
@@ -150,3 +165,215 @@ async def generate_execution_plan(pipeline_id: uuid.UUID) -> None:
         )
         await db.commit()
     await _write_plan(pipeline_id, text)
+
+
+# --------------------------------------------------------------- auto-suggest
+
+
+def _suggest_prompt(pipeline: Pipeline, roster: list[Agent]) -> str:
+    agent_list = "\n".join(
+        f"- {a.id} — {a.name} ({a.role}): {a.specialty}" for a in roster
+    ) or "(none yet)"
+    return f"""Given these available agents:
+{agent_list}
+
+And this task: {pipeline.title} — {pipeline.description}
+
+Select the best agents for this pipeline and specify their order.
+List ONLY existing agent ids in agent_sequence; if no existing agent fits a
+role, describe it in missing_agents instead (Atlas will create it before the
+pipeline runs, and it will be appended after the existing agents in the order
+you list).
+
+Respond with ONLY a JSON object, no markdown fences:
+{{
+  "agent_sequence": ["agent_id_1", "agent_id_2"],
+  "missing_agents": [
+    {{ "role": "...", "specialty": "...", "reason": "..." }}
+  ],
+  "reasoning": "..."
+}}"""
+
+
+def _parse_suggestion(text: str) -> dict | None:
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```[a-zA-Z]*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```$", "", cleaned.strip())
+    for candidate in (cleaned, *(m.group(0) for m in [re.search(r"\{.*\}", cleaned, re.DOTALL)] if m)):
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+async def _record_usage(agent: Agent, response) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        db.add(
+            TokenUsage(
+                agent_id=agent.id,
+                provider="anthropic",
+                model=agent.model,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                cost_usd=_cost(
+                    agent.model, response.usage.input_tokens, response.usage.output_tokens
+                ),
+            )
+        )
+        await db.commit()
+
+
+async def _atlas_create_missing(client, missing: dict) -> uuid.UUID | None:
+    """Have Atlas design and create one missing agent; deterministic fallback
+    (no extra LLM call) if Atlas is unavailable or errors."""
+    role = str(missing.get("role", "")).strip()
+    specialty = str(missing.get("specialty", "")).strip()
+    reason = str(missing.get("reason", "")).strip()
+    if not role:
+        return None
+
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        atlas = await db.get(Agent, ATLAS_ID)
+
+    if atlas is not None and client is not None:
+        try:
+            response = await client.messages.create(
+                model=atlas.model,
+                max_tokens=SUGGEST_MAX_OUTPUT_TOKENS,
+                system=atlas.system_prompt.strip() or "You are Atlas, the creator of agents.",
+                messages=[
+                    {
+                        "role": "user",
+                        "content": (
+                            "Create one new agent now.\n"
+                            f"Role: {role}\nSpecialty: {specialty}\nWhy needed: {reason}\n\n"
+                            "Call the create_agent tool exactly once, with a "
+                            "distinctive one-word name and a focused system prompt."
+                        ),
+                    }
+                ],
+                tools=[CREATE_AGENT_TOOL],
+                tool_choice={"type": "tool", "name": "create_agent"},
+            )
+            await _record_usage(atlas, response)
+            for block in response.content:
+                if block.type == "tool_use" and block.name == "create_agent":
+                    async with session_factory() as db:
+                        result = json.loads(
+                            await _dispatch_create_agent(atlas, dict(block.input), db)
+                        )
+                    return uuid.UUID(result["id"])
+        except Exception as exc:
+            logger.warning("Atlas could not create '%s' (%s) — synthesizing directly", role, exc)
+
+    async with session_factory() as db:
+        result = await create_agent(
+            name=role,
+            role=role,
+            specialty=specialty,
+            system_prompt=(
+                f"You are a {role}. {specialty}. You work inside a Forge pipeline: "
+                "complete the task you are given using your tools, then summarize "
+                "what you did."
+            ),
+            db=db,
+            creator_agent_id=ATLAS_ID,
+        )
+    return uuid.UUID(result["id"])
+
+
+async def suggest_and_plan(pipeline_id: uuid.UUID) -> None:
+    """Background task for auto_suggest pipelines: CEO picks the sequence,
+    Atlas fills gaps, then the normal plan generation runs."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        pipeline = await db.get(Pipeline, pipeline_id)
+        if pipeline is None:
+            return
+        # Eternal agents never run tasks themselves, so they are not selectable.
+        roster = (
+            await db.execute(
+                select(Agent).where(Agent.is_eternal.is_(False)).order_by(Agent.created_at)
+            )
+        ).scalars().all()
+        planner = await _pick_planner(db, list(roster))
+        client = None
+        try:
+            client = await _anthropic_client(db)
+        except Exception as exc:
+            logger.warning("Auto-suggest for %s: no LLM client (%s)", pipeline_id, exc)
+
+    sequence: list[uuid.UUID] = []
+    reasoning: str
+
+    if planner is None:
+        reasoning = (
+            "No agents exist yet, so nothing could be selected. Chat with Atlas "
+            "to build your team, then create this pipeline again."
+        )
+    elif client is None:
+        sequence = [planner.id]
+        reasoning = (
+            f"Auto-suggest needs a working Anthropic API key; defaulted to "
+            f"{planner.name} ({planner.role}) alone. Add a key in Settings and "
+            "try again for a full team."
+        )
+    else:
+        try:
+            response = await client.messages.create(
+                model=planner.model,
+                max_tokens=SUGGEST_MAX_OUTPUT_TOKENS,
+                system=planner.system_prompt.strip()
+                or f"You are {planner.name}, a {planner.role}.",
+                messages=[{"role": "user", "content": _suggest_prompt(pipeline, list(roster))}],
+            )
+            await _record_usage(planner, response)
+            text = "".join(b.text for b in response.content if b.type == "text")
+            data = _parse_suggestion(text)
+            if data is None:
+                raise ValueError("CEO response was not valid JSON")
+
+            roster_ids = {agent.id for agent in roster}
+            for raw_id in data.get("agent_sequence", []):
+                try:
+                    agent_id = uuid.UUID(str(raw_id))
+                except ValueError:
+                    continue
+                if agent_id in roster_ids and agent_id not in sequence:
+                    sequence.append(agent_id)
+
+            missing = data.get("missing_agents") or []
+            for entry in missing[:MAX_MISSING_AGENTS]:
+                if not isinstance(entry, dict):
+                    continue
+                created_id = await _atlas_create_missing(client, entry)
+                if created_id is not None:
+                    sequence.append(created_id)
+
+            reasoning = str(data.get("reasoning", "")).strip() or "No reasoning provided."
+            if not sequence:
+                sequence = [planner.id]
+                reasoning += f"\n\n(No selectable agents were returned — defaulted to {planner.name}.)"
+        except Exception as exc:
+            logger.warning("Auto-suggest for %s failed (%s) — defaulting", pipeline_id, exc)
+            sequence = [planner.id]
+            reasoning = (
+                f"Auto-suggest failed ({exc}); defaulted to {planner.name} "
+                f"({planner.role}) alone. Approve to run anyway, or delete and retry."
+            )
+
+    async with session_factory() as db:
+        row = await db.get(Pipeline, pipeline_id)
+        if row is None:
+            return  # deleted while we were thinking
+        row.agent_sequence = sequence
+        row.suggestion_reasoning = reasoning
+        await db.commit()
+
+    await generate_execution_plan(pipeline_id)

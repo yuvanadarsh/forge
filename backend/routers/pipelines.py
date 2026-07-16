@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.connection import get_db
 from db.models import Agent, Conversation, Message, Pipeline, PipelineRun, Settings
 from services.orchestrator import start_pipeline_run
-from services.planner import generate_execution_plan
+from services.planner import generate_execution_plan, suggest_and_plan
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
@@ -32,10 +32,12 @@ def _spawn_background(coro) -> None:
 class PipelineCreate(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
-    agent_sequence: list[uuid.UUID] = Field(min_length=1)
+    # Empty is allowed only with auto_suggest — the CEO fills the sequence.
+    agent_sequence: list[uuid.UUID] = Field(default_factory=list)
     plan_md: str = ""
     workspace_path: str | None = None  # None -> settings.workspace_root/<slug>
     created_by: uuid.UUID | None = None
+    auto_suggest: bool = False
 
 
 class PipelineOut(BaseModel):
@@ -48,6 +50,7 @@ class PipelineOut(BaseModel):
     agent_sequence: list[uuid.UUID]
     created_by: uuid.UUID | None
     plan_md: str
+    suggestion_reasoning: str | None = None
     workspace_path: str
     approved_at: datetime | None
     created_at: datetime
@@ -90,12 +93,23 @@ async def list_pipelines(db: AsyncSession = Depends(get_db)) -> list[Pipeline]:
 
 @router.post("", response_model=PipelineOut, status_code=201)
 async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_db)) -> Pipeline:
-    known = (
-        await db.execute(select(Agent.id).where(Agent.id.in_(body.agent_sequence)))
-    ).scalars().all()
-    missing = set(body.agent_sequence) - set(known)
-    if missing:
-        raise HTTPException(status_code=400, detail=f"Unknown agent ids: {sorted(map(str, missing))}")
+    if body.auto_suggest:
+        agent_sequence: list[uuid.UUID] = []  # the CEO fills this in the background
+    else:
+        if not body.agent_sequence:
+            raise HTTPException(
+                status_code=400,
+                detail="agent_sequence must have at least one agent unless auto_suggest is set",
+            )
+        known = (
+            await db.execute(select(Agent.id).where(Agent.id.in_(body.agent_sequence)))
+        ).scalars().all()
+        missing = set(body.agent_sequence) - set(known)
+        if missing:
+            raise HTTPException(
+                status_code=400, detail=f"Unknown agent ids: {sorted(map(str, missing))}"
+            )
+        agent_sequence = body.agent_sequence
 
     workspace_path = body.workspace_path
     if not workspace_path:
@@ -109,7 +123,7 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
     pipeline = Pipeline(
         title=body.title,
         description=body.description,
-        agent_sequence=body.agent_sequence,
+        agent_sequence=agent_sequence,
         created_by=body.created_by,
         plan_md=body.plan_md,
         workspace_path=workspace_path,
@@ -118,10 +132,13 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
     await db.commit()
     await db.refresh(pipeline)
 
-    # No plan supplied → the CEO (or first agent) drafts one in the background.
-    # The frontend polls GET /api/pipelines/{id} until plan_md is populated;
-    # generate_execution_plan always terminates in a non-empty plan.
-    if not pipeline.plan_md.strip():
+    # Background follow-ups; the frontend polls GET /api/pipelines/{id} until
+    # plan_md is populated, and both flows always terminate in a non-empty plan.
+    # auto_suggest: CEO picks the sequence (Atlas creates gaps), then plans.
+    # Otherwise, an empty plan gets drafted by the CEO / first agent.
+    if body.auto_suggest:
+        _spawn_background(suggest_and_plan(pipeline.id))
+    elif not pipeline.plan_md.strip():
         _spawn_background(generate_execution_plan(pipeline.id))
     return pipeline
 

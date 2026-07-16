@@ -96,6 +96,7 @@ class Pipeline(Base):
         ForeignKey("agents.id", ondelete="SET NULL")
     )
     plan_md: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    suggestion_reasoning: Mapped[str | None] = mapped_column(Text)
     workspace_path: Mapped[str] = mapped_column(Text)
     approved_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))

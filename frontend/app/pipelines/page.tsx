@@ -7,7 +7,7 @@ import CreatePipelineModal from "@/components/CreatePipelineModal";
 import EmptyState from "@/components/EmptyState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Toast from "@/components/Toast";
-import { ApiError, approvePipeline, getPipeline } from "@/lib/api";
+import { ApiError, approvePipeline, getPipeline, listAgents } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendPipeline } from "@/types";
 
@@ -61,6 +61,11 @@ export default function PipelinesPage() {
               dispatch({ type: "UPDATE_PIPELINE", pipeline: detail });
               setPendingPlanIds((prev) => prev.filter((id) => id !== pipelineId));
               setToast("Execution plan ready for review");
+              // Auto-suggest may have had Atlas create new agents — refresh
+              // the roster so the sequence chips can render them.
+              listAgents()
+                .then((agents) => dispatch({ type: "SET_AGENTS", agents }))
+                .catch(() => {});
             }
           })
           .catch((err) => {
@@ -240,10 +245,30 @@ export default function PipelinesPage() {
                           className="w-2 h-2 rounded-full shrink-0"
                           style={{ background: "#f59e0b" }}
                         />
-                        Generating execution plan…
+                        {pipeline.agent_sequence.length === 0
+                          ? "CEO is choosing agents and drafting the plan…"
+                          : "Generating execution plan…"}
                       </div>
                     ) : (
-                      <MarkdownBlock content={pipeline.plan_md || "*No execution plan provided.*"} />
+                      <>
+                        {pipeline.suggestion_reasoning && (
+                          <details className="mb-5">
+                            <summary
+                              className="text-xs font-semibold uppercase tracking-wider cursor-pointer select-none"
+                              style={{ color: "#f59e0b" }}
+                            >
+                              CEO&apos;s Reasoning
+                            </summary>
+                            <p
+                              className="text-sm mt-2 leading-relaxed whitespace-pre-wrap"
+                              style={{ color: "#a1a1aa" }}
+                            >
+                              {pipeline.suggestion_reasoning}
+                            </p>
+                          </details>
+                        )}
+                        <MarkdownBlock content={pipeline.plan_md || "*No execution plan provided.*"} />
+                      </>
                     )}
                     {pipeline.status === "pending_approval" && (
                       <div className="mt-6 flex gap-3">
