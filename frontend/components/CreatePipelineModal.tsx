@@ -46,6 +46,23 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
     setFolderName(value);
   }
 
+  function handleBrowse() {
+    const input = document.createElement("input");
+    input.type = "file";
+    // webkitdirectory is a non-standard but widely-supported attribute for
+    // picking a folder; browsers only ever expose files' paths relative to
+    // the picked root, never an absolute filesystem path.
+    (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
+    input.onchange = () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const relativePath = file.webkitRelativePath || file.name;
+      const folder = relativePath.split("/")[0];
+      if (folder) setExistingPath(`/Users/username/${folder}`);
+    };
+    input.click();
+  }
+
   const agents = state.agents;
   // Auto-suggest defaults on when a CEO-role agent exists to do the choosing.
   const [autoSuggest, setAutoSuggest] = useState(
@@ -266,15 +283,30 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
                 </p>
               </div>
             ) : (
-              <input
-                value={existingPath}
-                onChange={(e) => setExistingPath(e.target.value)}
-                placeholder="/Users/username/my-existing-project"
-                className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
-                style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-                onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
-                onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
-              />
+              <div>
+                <div className="flex gap-2">
+                  <input
+                    value={existingPath}
+                    onChange={(e) => setExistingPath(e.target.value)}
+                    placeholder="/Users/username/my-existing-project"
+                    className="flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
+                    style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
+                    onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
+                    onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleBrowse}
+                    className="px-3 py-2.5 rounded-lg text-xs font-medium border transition-colors duration-150 shrink-0"
+                    style={{ background: "#1f1f1f", color: "#f5f5f5", borderColor: "#1f1f1f" }}
+                  >
+                    Browse…
+                  </button>
+                </div>
+                <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "#3f3f46" }}>
+                  Select any file inside your project folder — Forge will use the containing directory.
+                </p>
+              </div>
             )}
           </div>
         </div>
