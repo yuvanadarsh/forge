@@ -1,10 +1,6 @@
 version: '3.9'
 services:
   backend:
-    build: ./backend
-    # Local builds tag as the published GHCR image; `docker compose pull`
-    # fetches the pre-built one instead (docker-compose.prod.yml is the
-    # build-free variant used by install.sh).
     image: ghcr.io/yuvanadarsh/forge-backend:latest
     ports:
       - "${BACKEND_PORT:-8000}:8000"
@@ -12,26 +8,17 @@ services:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@host.docker.internal:5432/${DB_NAME}
       - SECRET_KEY=${SECRET_KEY}
       - VOYAGE_API_KEY=${VOYAGE_API_KEY}
-      - FRONTEND_URL=http://localhost:${FRONTEND_PORT:-3000}
-      - WATCHFILES_FORCE_POLLING=true
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
-      - ./backend:/app
-      - /app/.venv
       - ~/forge-workspace:/root/forge-workspace
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     restart: unless-stopped
 
   frontend:
-    build: ./frontend
     image: ghcr.io/yuvanadarsh/forge-frontend:latest
     ports:
       - "${FRONTEND_PORT:-3000}:3000"
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
       - NEXT_PUBLIC_WS_URL=ws://localhost:${BACKEND_PORT:-8000}
-    command: npm run dev -- --webpack
-    depends_on:
-      - backend
     restart: unless-stopped
