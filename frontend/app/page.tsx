@@ -131,6 +131,8 @@ export default function DashboardPage() {
                 key={agent.id}
                 agent={agent}
                 currentTask={getCurrentTask(agent.id)}
+                onDeleted={setToast}
+                onError={setToast}
               />
             ))}
           </div>

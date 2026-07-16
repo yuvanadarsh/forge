@@ -117,6 +117,11 @@ export default function TasksPage() {
                       onRun={() => setToast("Coming soon — agent execution not yet wired.")}
                       onClick={() => setSelectedTask(task)}
                       onMove={(status) => handleMoveTask(task, status)}
+                      onDeleted={(message) => {
+                        if (selectedTask?.id === task.id) setSelectedTask(null);
+                        setToast(message);
+                      }}
+                      onError={setToast}
                     />
                   ))
                 )}

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import ConversationMenu from "@/components/ConversationMenu";
+import Toast from "@/components/Toast";
 import { listConversations, updateConversation } from "@/lib/api";
 import { useForge } from "@/lib/store";
 
@@ -33,6 +34,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(true);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
+  const [toast, setToast] = useState<string | null>(null);
 
   const agents = state.agents;
   const conversations = state.conversations;
@@ -78,8 +80,15 @@ export default function ChatPage() {
     setRenamingId(null);
     const current = conversations.find((c) => c.id === conversationId);
     if (!title || !current || title === current.title) return;
-    const updated = await updateConversation(conversationId, title);
-    dispatch({ type: "UPDATE_CONVERSATION", conversation: updated });
+    // Optimistic: update the store immediately, revert + toast if the PATCH fails.
+    dispatch({ type: "UPDATE_CONVERSATION", conversation: { ...current, title } });
+    try {
+      const updated = await updateConversation(conversationId, title);
+      dispatch({ type: "UPDATE_CONVERSATION", conversation: updated });
+    } catch (err) {
+      dispatch({ type: "UPDATE_CONVERSATION", conversation: current });
+      setToast(`Rename failed: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   }
 
   return (
@@ -124,7 +133,7 @@ export default function ChatPage() {
           {rows.map(({ agent, conv, pair }, i) => (
             <div
               key={conv.id}
-              className="flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[#161616]"
+              className="relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[#161616]"
               style={{
                 borderLeft: `3px solid ${pair[0]}`,
                 borderBottom: i < rows.length - 1 ? "1px solid #1a1a1a" : "none",
@@ -163,6 +172,7 @@ export default function ChatPage() {
                     autoFocus
                     value={titleDraft}
                     onChange={(e) => setTitleDraft(e.target.value)}
+                    onFocus={(e) => e.target.select()}
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
@@ -207,6 +217,8 @@ export default function ChatPage() {
           ))}
         </div>
       )}
+
+      {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
   );
 }

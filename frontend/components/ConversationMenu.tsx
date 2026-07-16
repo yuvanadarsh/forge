@@ -53,7 +53,7 @@ export default function ConversationMenu({
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 w-36 rounded-lg border py-1 z-20"
+          className="absolute right-0 top-full mt-1 w-36 rounded-lg border py-1 z-30"
           style={{ background: "#161616", borderColor: "#1f1f1f" }}
         >
           <button

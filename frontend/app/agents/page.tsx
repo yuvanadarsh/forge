@@ -64,7 +64,13 @@ export default function AgentsPage() {
       ) : (
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 items-stretch">
           {agents.map((agent) => (
-            <AgentCard key={agent.id} agent={agent} currentTask={getCurrentTask(agent.id)} />
+            <AgentCard
+              key={agent.id}
+              agent={agent}
+              currentTask={getCurrentTask(agent.id)}
+              onDeleted={setToast}
+              onError={setToast}
+            />
           ))}
         </div>
       )}

@@ -100,6 +100,23 @@
 - [x] **Delete / rename conversations** — a shared "⋯" menu on the agent chat header
       and each `/chat` row offers Delete (confirmation dialog) and Rename (inline edit)
 
+### Phase 2.7 — UI Bug Fixes & Small Features ✅
+
+- [x] **Z-index audit** — consistent layering across the app: toasts z-50,
+      modals/overlays z-40, dropdown menus z-30, slide-over panels z-20, sidebar z-10,
+      pipeline execution plan panel z-10
+- [x] **Escape key closes modals** — every modal/panel (Create Agent, Create Task,
+      Create Pipeline, Add Provider, Task slide-over, Confirm dialog) closes on Escape
+- [x] **Delete agent** — hover "⋯" menu on agent cards (dashboard + `/agents`) with
+      View/Delete; blocked with a clear error if the agent has active pipeline runs
+- [x] **Delete task** — hover "✕" button on task cards with confirmation
+- [x] **Model dropdown in Create Agent** — populated from configured API keys,
+      grouped by provider, with a helpful empty state pointing at Settings
+- [x] **Auto-clean empty conversations** — creating a new general chat for an agent
+      deletes that agent's other empty (no messages, no task) general chats
+- [x] **Strict Mode toggle fix** — corrected the toggle knob's track sizing so it no
+      longer overflows its container
+
 ### Phase 3 — Real Agent Execution & Pipeline Testing ⬜ (next session)
 
 - [ ] End-to-end pipeline runs with a real Anthropic key (streamed tokens, live gates)

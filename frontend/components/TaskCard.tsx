@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import ConfirmDialog from "@/components/ConfirmDialog";
+import { deleteTask } from "@/lib/api";
+import { useForge } from "@/lib/store";
 import type { BackendAgent, BackendTask, Task } from "@/types";
 
 const PRIORITY_STYLES: Record<Task["priority"], { label: string; color: string; bg: string }> = {
@@ -23,20 +26,51 @@ interface Props {
   onRun: () => void;
   onClick?: () => void;
   onMove?: (status: Task["status"]) => void;
+  onDeleted?: (message: string) => void;
+  onError?: (message: string) => void;
 }
 
-export default function TaskCard({ task, agent, onRun, onClick, onMove }: Props) {
+export default function TaskCard({ task, agent, onRun, onClick, onMove, onDeleted, onError }: Props) {
+  const { dispatch } = useForge();
   const p = PRIORITY_STYLES[task.priority];
   const [showMoveMenu, setShowMoveMenu] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const otherStatuses = STATUS_OPTIONS.filter((s) => s.key !== task.status);
 
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      await deleteTask(task.id);
+      dispatch({ type: "DELETE_TASK", taskId: task.id });
+      onDeleted?.(`Task "${task.title}" deleted`);
+    } catch (err) {
+      onError?.(err instanceof Error ? err.message : "Failed to delete task");
+    } finally {
+      setDeleting(false);
+      setConfirming(false);
+    }
+  }
+
   return (
     <div
-      className="rounded-xl p-3 flex flex-col gap-2 border cursor-pointer relative transition-colors duration-150 hover:border-[#2a2a2a]"
+      className="group rounded-xl p-3 flex flex-col gap-2 border cursor-pointer relative transition-colors duration-150 hover:border-[#2a2a2a]"
       style={{ background: "#111111", borderColor: "#1f1f1f" }}
       onClick={onClick}
     >
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          setConfirming(true);
+        }}
+        className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center text-[10px] transition-opacity duration-150 opacity-0 group-hover:opacity-100 z-10"
+        style={{ background: "#1f1f1f", color: "#a1a1aa", border: "1px solid #2a2a2a" }}
+        aria-label="Delete task"
+      >
+        ✕
+      </button>
+
       <div className="flex items-start justify-between gap-2">
         <span className="text-sm font-medium leading-snug" style={{ color: "#f5f5f5" }}>
           {task.title}
@@ -80,7 +114,7 @@ export default function TaskCard({ task, agent, onRun, onClick, onMove }: Props)
               </button>
               {showMoveMenu && (
                 <div
-                  className="absolute right-0 bottom-full mb-1 z-20 rounded-xl border shadow-xl overflow-hidden"
+                  className="absolute right-0 bottom-full mb-1 z-30 rounded-xl border shadow-xl overflow-hidden"
                   style={{ background: "#1a1a1a", borderColor: "#2a2a2a", minWidth: "130px" }}
                   onClick={(e) => e.stopPropagation()}
                 >
@@ -113,6 +147,16 @@ export default function TaskCard({ task, agent, onRun, onClick, onMove }: Props)
           </button>
         </div>
       </div>
+
+      {confirming && (
+        <ConfirmDialog
+          title="Delete this task?"
+          message="This cannot be undone."
+          confirmLabel={deleting ? "Deleting…" : "Delete"}
+          onConfirm={handleDelete}
+          onCancel={() => setConfirming(false)}
+        />
+      )}
     </div>
   );
 }

@@ -60,6 +60,7 @@ export type ForgeAction =
   | { type: "DELETE_AGENT"; agentId: string }
   | { type: "ADD_TASK"; task: BackendTask }
   | { type: "UPDATE_TASK"; task: BackendTask }
+  | { type: "DELETE_TASK"; taskId: string }
   | { type: "ADD_PIPELINE"; pipeline: BackendPipeline }
   | { type: "MARK_NOTIFICATION_READ"; notificationId: string }
   | { type: "MARK_ALL_NOTIFICATIONS_READ" }
@@ -121,6 +122,8 @@ function forgeReducer(state: ForgeState, action: ForgeAction): ForgeState {
         ...state,
         tasks: state.tasks.map((t) => (t.id === action.task.id ? action.task : t)),
       };
+    case "DELETE_TASK":
+      return { ...state, tasks: state.tasks.filter((t) => t.id !== action.taskId) };
     case "ADD_PIPELINE":
       return { ...state, pipelines: [action.pipeline, ...state.pipelines] };
     case "MARK_NOTIFICATION_READ":

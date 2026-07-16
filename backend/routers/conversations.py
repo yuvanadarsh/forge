@@ -7,7 +7,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.connection import get_db
@@ -115,6 +115,26 @@ async def create_conversation(
     db.add(conversation)
     await db.commit()
     await db.refresh(conversation)
+
+    # Clean up stale empty general chats for this agent — task conversations
+    # are excluded since a task's chat is expected to sit empty until used.
+    if conversation.agent_id is not None:
+        empty_ids = (
+            await db.execute(
+                select(Conversation.id)
+                .outerjoin(Message, Message.conversation_id == Conversation.id)
+                .where(
+                    Conversation.agent_id == conversation.agent_id,
+                    Conversation.task_id.is_(None),
+                    Conversation.id != conversation.id,
+                    Message.id.is_(None),
+                )
+            )
+        ).scalars().all()
+        if empty_ids:
+            await db.execute(delete(Conversation).where(Conversation.id.in_(empty_ids)))
+            await db.commit()
+
     return conversation
 
 
