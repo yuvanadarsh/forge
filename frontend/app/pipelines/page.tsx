@@ -1,13 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import CreatePipelineModal from "@/components/CreatePipelineModal";
 import EmptyState from "@/components/EmptyState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Toast from "@/components/Toast";
-import { approvePipeline } from "@/lib/api";
+import { ApiError, approvePipeline, getPipeline } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendPipeline } from "@/types";
 
@@ -47,10 +47,42 @@ export default function PipelinesPage() {
 
   const { pipelines, agents, loading } = state;
 
+  // Pipelines whose execution plan the CEO is still drafting: poll every 3s
+  // until plan_md lands (the backend always terminates in a non-empty plan).
+  const [pendingPlanIds, setPendingPlanIds] = useState<string[]>([]);
+
+  useEffect(() => {
+    if (pendingPlanIds.length === 0) return;
+    const interval = setInterval(() => {
+      for (const pipelineId of pendingPlanIds) {
+        getPipeline(pipelineId)
+          .then((detail) => {
+            if (detail.plan_md) {
+              dispatch({ type: "UPDATE_PIPELINE", pipeline: detail });
+              setPendingPlanIds((prev) => prev.filter((id) => id !== pipelineId));
+              setToast("Execution plan ready for review");
+            }
+          })
+          .catch((err) => {
+            // Stop polling only if the pipeline is gone; transient network
+            // failures retry on the next tick.
+            if (err instanceof ApiError && err.status === 404) {
+              setPendingPlanIds((prev) => prev.filter((id) => id !== pipelineId));
+            }
+          });
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [pendingPlanIds, dispatch]);
+
   function handleCreated(pipeline: BackendPipeline) {
     dispatch({ type: "ADD_PIPELINE", pipeline });
     setShowCreateModal(false);
     setToast(`Pipeline "${pipeline.title}" created`);
+    if (!pipeline.plan_md) {
+      setPendingPlanIds((prev) => [...prev, pipeline.id]);
+      setExpanded(pipeline.id); // surface the generating state right away
+    }
   }
 
   async function handleApprove(pipeline: BackendPipeline) {
@@ -202,7 +234,17 @@ export default function PipelinesPage() {
                     <h3 className="text-xs font-semibold uppercase tracking-wider mb-4" style={{ color: "#71717a" }}>
                       Execution Plan
                     </h3>
-                    <MarkdownBlock content={pipeline.plan_md || "*No execution plan provided.*"} />
+                    {pendingPlanIds.includes(pipeline.id) ? (
+                      <div className="flex items-center gap-2.5 text-sm animate-pulse py-2" style={{ color: "#f59e0b" }}>
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ background: "#f59e0b" }}
+                        />
+                        Generating execution plan…
+                      </div>
+                    ) : (
+                      <MarkdownBlock content={pipeline.plan_md || "*No execution plan provided.*"} />
+                    )}
                     {pipeline.status === "pending_approval" && (
                       <div className="mt-6 flex gap-3">
                         <button

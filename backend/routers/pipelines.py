@@ -14,11 +14,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.connection import get_db
 from db.models import Agent, Conversation, Message, Pipeline, PipelineRun, Settings
 from services.orchestrator import start_pipeline_run
+from services.planner import generate_execution_plan
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
-# Strong references so background pipeline runs aren't garbage-collected.
+# Strong references so background jobs (runs, plan generation) aren't
+# garbage-collected mid-flight.
 _running_pipelines: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    job = asyncio.create_task(coro)
+    _running_pipelines.add(job)
+    job.add_done_callback(_running_pipelines.discard)
 
 
 class PipelineCreate(BaseModel):
@@ -109,6 +117,12 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
     db.add(pipeline)
     await db.commit()
     await db.refresh(pipeline)
+
+    # No plan supplied → the CEO (or first agent) drafts one in the background.
+    # The frontend polls GET /api/pipelines/{id} until plan_md is populated;
+    # generate_execution_plan always terminates in a non-empty plan.
+    if not pipeline.plan_md.strip():
+        _spawn_background(generate_execution_plan(pipeline.id))
     return pipeline
 
 
@@ -150,9 +164,7 @@ async def approve_pipeline(pipeline_id: uuid.UUID, db: AsyncSession = Depends(ge
     await db.commit()
     await db.refresh(run)
 
-    task = asyncio.create_task(start_pipeline_run(run.id))
-    _running_pipelines.add(task)
-    task.add_done_callback(_running_pipelines.discard)
+    _spawn_background(start_pipeline_run(run.id))
     return RunOut.model_validate(run)
 
 

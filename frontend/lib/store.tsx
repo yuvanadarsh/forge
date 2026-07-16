@@ -62,6 +62,7 @@ export type ForgeAction =
   | { type: "UPDATE_TASK"; task: BackendTask }
   | { type: "DELETE_TASK"; taskId: string }
   | { type: "ADD_PIPELINE"; pipeline: BackendPipeline }
+  | { type: "UPDATE_PIPELINE"; pipeline: BackendPipeline }
   | { type: "MARK_NOTIFICATION_READ"; notificationId: string }
   | { type: "MARK_ALL_NOTIFICATIONS_READ" }
   | { type: "SET_LOADING"; key: keyof ForgeState["loading"]; value: boolean }
@@ -131,6 +132,13 @@ function forgeReducer(state: ForgeState, action: ForgeAction): ForgeState {
       return { ...state, tasks: state.tasks.filter((t) => t.id !== action.taskId) };
     case "ADD_PIPELINE":
       return { ...state, pipelines: [action.pipeline, ...state.pipelines] };
+    case "UPDATE_PIPELINE":
+      return {
+        ...state,
+        pipelines: state.pipelines.map((p) =>
+          p.id === action.pipeline.id ? action.pipeline : p,
+        ),
+      };
     case "MARK_NOTIFICATION_READ":
       return {
         ...state,
