@@ -253,15 +253,14 @@ export default function SettingsPage() {
                   style={{ background: "#0d0d0d", borderColor: security.strict_mode ? "#f59e0b" : "#1f1f1f" }}
                 >
                   <span
-                    className="relative inline-block w-9 h-5 rounded-full transition-colors duration-150 shrink-0"
+                    className="relative inline-block w-11 h-6 rounded-full overflow-hidden transition-colors duration-150 shrink-0"
                     style={{ background: security.strict_mode ? "#f59e0b" : "#2a2a2a" }}
                   >
                     <span
-                      className="absolute top-0.5 w-4 h-4 rounded-full transition-transform duration-150"
-                      style={{
-                        background: security.strict_mode ? "#0a0a0a" : "#71717a",
-                        transform: security.strict_mode ? "translateX(18px)" : "translateX(2px)",
-                      }}
+                      className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform duration-150 ${
+                        security.strict_mode ? "translate-x-5" : "translate-x-0"
+                      }`}
+                      style={{ background: security.strict_mode ? "#0a0a0a" : "#71717a" }}
                     />
                   </span>
                   <span className="text-sm" style={{ color: security.strict_mode ? "#f5f5f5" : "#71717a" }}>
