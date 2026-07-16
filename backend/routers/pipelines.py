@@ -18,6 +18,8 @@ from services.planner import generate_execution_plan, suggest_and_plan
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
+ACTIVE_RUN_STATUSES = ("running", "paused_for_approval", "approved")
+
 # Strong references so background jobs (runs, plan generation) aren't
 # garbage-collected mid-flight.
 _running_pipelines: set[asyncio.Task] = set()
@@ -53,6 +55,7 @@ class PipelineOut(BaseModel):
     suggestion_reasoning: str | None = None
     workspace_path: str
     approved_at: datetime | None
+    archived_at: datetime | None = None
     created_at: datetime
 
 
@@ -214,6 +217,48 @@ async def approve_gate(
     await db.commit()
     await db.refresh(run)
     return RunOut.model_validate(run)
+
+
+async def _active_run_count(pipeline_id: uuid.UUID, db: AsyncSession) -> int:
+    return (
+        await db.execute(
+            select(func.count())
+            .select_from(PipelineRun)
+            .where(
+                PipelineRun.pipeline_id == pipeline_id,
+                PipelineRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
+        )
+    ).scalar_one()
+
+
+@router.delete("/{pipeline_id}", status_code=204)
+async def delete_pipeline(pipeline_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    """Delete a pipeline and (via FK cascades) its runs, conversations and
+    messages. Tasks and token_usage survive with their pipeline refs nulled."""
+    pipeline = await _get_pipeline_or_404(pipeline_id, db)
+    if await _active_run_count(pipeline_id, db):
+        raise HTTPException(
+            status_code=409, detail="Cannot delete a running pipeline. Stop it first."
+        )
+    await db.delete(pipeline)
+    await db.commit()
+
+
+@router.patch("/{pipeline_id}/archive", response_model=PipelineOut)
+async def archive_pipeline(
+    pipeline_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> Pipeline:
+    pipeline = await _get_pipeline_or_404(pipeline_id, db)
+    if await _active_run_count(pipeline_id, db):
+        raise HTTPException(
+            status_code=409, detail="Cannot archive a running pipeline. Stop it first."
+        )
+    pipeline.status = "archived"
+    pipeline.archived_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(pipeline)
+    return pipeline
 
 
 @router.get("/{pipeline_id}/runs", response_model=list[RunOut])

@@ -57,13 +57,14 @@ CREATE TABLE pipelines (
     description    TEXT NOT NULL DEFAULT '',
     status         TEXT NOT NULL DEFAULT 'pending_approval'
                    CHECK (status IN ('pending_approval', 'approved', 'running',
-                                     'paused_for_approval', 'completed', 'failed')),
+                                     'paused_for_approval', 'completed', 'failed', 'archived')),
     agent_sequence UUID[] NOT NULL DEFAULT '{}',   -- ordered agent ids
     created_by     UUID REFERENCES agents(id) ON DELETE SET NULL,  -- NULL = created by user
     plan_md        TEXT NOT NULL DEFAULT '',
     suggestion_reasoning TEXT,           -- CEO's reasoning when auto-suggested, else NULL
     workspace_path TEXT NOT NULL,
     approved_at    TIMESTAMPTZ,
+    archived_at    TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

@@ -113,7 +113,8 @@ export interface BackendPipeline {
     | "running"
     | "paused_for_approval"
     | "completed"
-    | "failed";
+    | "failed"
+    | "archived";
   agent_sequence: string[];
   created_by: string | null;
   plan_md: string;
@@ -121,6 +122,7 @@ export interface BackendPipeline {
   suggestion_reasoning: string | null;
   workspace_path: string;
   approved_at: string | null;
+  archived_at: string | null;
   created_at: string;
 }
 

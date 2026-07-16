@@ -99,6 +99,7 @@ class Pipeline(Base):
     suggestion_reasoning: Mapped[str | None] = mapped_column(Text)
     workspace_path: Mapped[str] = mapped_column(Text)
     approved_at: Mapped[datetime | None] = mapped_column()
+    archived_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 
