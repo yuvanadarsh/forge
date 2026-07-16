@@ -447,7 +447,7 @@ export default function PipelinesPage() {
             <EmptyState
               icon="⚙️"
               title="No pipelines yet."
-              description="Create a pipeline to sequence agents against a workspace folder."
+              description="Describe a project to get started — the CEO plans it, agents build it, you approve every step."
               action={{ label: "Create Pipeline", onClick: () => setShowCreateModal(true) }}
             />
           ) : (

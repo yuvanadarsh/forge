@@ -6,6 +6,7 @@ import TaskCard from "@/components/TaskCard";
 import Toast from "@/components/Toast";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import TaskSlideOver from "@/components/TaskSlideOver";
+import EmptyState from "@/components/EmptyState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import { runTask, updateTask } from "@/lib/api";
 import { useForge } from "@/lib/store";
@@ -93,6 +94,14 @@ export default function TasksPage() {
         </button>
       </div>
 
+      {!loading.tasks && tasks.length === 0 ? (
+        <EmptyState
+          icon="🗂️"
+          title="No tasks yet."
+          description="Create a task and assign it to an agent — the Run button executes it for real."
+          action={{ label: "New Task", onClick: () => openModal("backlog") }}
+        />
+      ) : (
       <div className="grid grid-cols-4 gap-4">
         {COLUMNS.map((col) => {
           const colTasks = tasks.filter((t) => t.status === col.key);
@@ -149,6 +158,7 @@ export default function TasksPage() {
           );
         })}
       </div>
+      )}
 
       {showModal && (
         <CreateTaskModal

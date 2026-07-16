@@ -7,6 +7,7 @@ import TaskCard from "@/components/TaskCard";
 import Toast from "@/components/Toast";
 import CreateTaskModal from "@/components/CreateTaskModal";
 import CreateAgentModal from "@/components/CreateAgentModal";
+import OnboardingBanner from "@/components/OnboardingBanner";
 import TaskSlideOver from "@/components/TaskSlideOver";
 import CostAnalyticsGraph from "@/components/CostAnalyticsGraph";
 import EmptyState from "@/components/EmptyState";
@@ -32,6 +33,11 @@ export default function DashboardPage() {
   const [selectedTask, setSelectedTask] = useState<BackendTask | null>(null);
 
   const { agents, tasks, loading } = state;
+
+  // Fresh workspace = only Atlas on the roster and no tasks yet.
+  const onlyAtlas = agents.length === 1 && agents[0].is_eternal;
+  const showOnboarding =
+    !loading.agents && !loading.tasks && onlyAtlas && tasks.length === 0;
 
   function getAgent(id: string | null) {
     return id ? agents.find((a) => a.id === id) : undefined;
@@ -126,6 +132,13 @@ export default function DashboardPage() {
           </button>
         </div>
       </div>
+
+      {showOnboarding && (
+        <OnboardingBanner
+          atlasId={agents[0].id}
+          onCreateAgent={() => setShowAgentModal(true)}
+        />
+      )}
 
       {/* Agent Grid */}
       <section className="mb-10">
