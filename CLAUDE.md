@@ -85,9 +85,14 @@ is part of Phase 3, not done yet.
 
 ## Running Locally
 
-- docker compose up --build
+~~- docker compose up --build
 - Hot reload enabled via volume mounts on both frontend and backend.
-- Postgres runs on host machine — containers connect via host.docker.internal.
+- Postgres runs on host machine — containers connect via host.docker.internal.~~
+
+- Backend: docker compose up --build (Docker, port 8000)
+- Frontend: cd frontend && npm install && npm run dev (native, port 3000)
+- Do NOT put frontend in docker-compose.yml — causes arm64 architecture
+  mismatches with lightningcss and other native binaries on Apple Silicon
 
 ## Database
 
