@@ -25,13 +25,29 @@ export default function ConfirmDialog({
 
   return (
     <div
-      className="modal-overlay fixed inset-0 z-40 flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.6)" }}
+      className="modal-overlay flex items-center justify-center p-4"
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        width: "100vw",
+        height: "100vh",
+        zIndex: 9999,
+        background: "rgba(0,0,0,0.6)",
+      }}
       onClick={onCancel}
     >
       <div
         className="w-full max-w-sm rounded-xl border p-5"
-        style={{ background: "#111111", borderColor: "#1f1f1f" }}
+        style={{
+          position: "fixed",
+          top: "50%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          zIndex: 9999,
+          background: "#111111",
+          borderColor: "#1f1f1f",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         <h2 className="text-sm font-semibold mb-2" style={{ color: "#f5f5f5" }}>

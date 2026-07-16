@@ -79,7 +79,7 @@ export default function NotificationBell() {
   }
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative" style={{ position: "relative", zIndex: 50 }}>
       <button
         onClick={() => setOpen((v) => !v)}
         className="relative flex items-center justify-center w-8 h-8 rounded-lg transition-colors duration-150"
@@ -104,8 +104,17 @@ export default function NotificationBell() {
 
       {open && (
         <div
-          className="absolute left-full ml-2 top-0 rounded-xl border overflow-hidden z-50"
-          style={{ background: "#111111", borderColor: "#1f1f1f", width: "300px", boxShadow: "0 12px 32px rgba(0,0,0,0.6)" }}
+          className="rounded-xl border overflow-hidden"
+          style={{
+            position: "fixed",
+            bottom: "80px",
+            left: "220px",
+            zIndex: 9999,
+            width: "320px",
+            background: "#111111",
+            borderColor: "#1f1f1f",
+            boxShadow: "0 12px 32px rgba(0,0,0,0.6)",
+          }}
         >
           <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "#1f1f1f" }}>
             <span className="text-xs font-semibold" style={{ color: "#f5f5f5" }}>Notifications</span>

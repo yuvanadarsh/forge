@@ -83,14 +83,39 @@ function PipelineCard({
   const s = STATUS_STYLES[pipeline.status] ?? STATUS_STYLES.completed;
   const isActive = ACTIVE_STATUSES.includes(pipeline.status);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [confirmingStop, setConfirmingStop] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuDropdownRef = useRef<HTMLDivElement>(null);
+
+  const MENU_WIDTH = 176; // w-44
+
+  function toggleMenu() {
+    if (!menuOpen) {
+      const rect = menuButtonRef.current?.getBoundingClientRect();
+      if (rect) {
+        setMenuPos({
+          top: rect.bottom + 4,
+          left: Math.max(8, rect.right - MENU_WIDTH),
+        });
+      }
+    }
+    setMenuOpen((o) => !o);
+  }
 
   useEffect(() => {
     if (!menuOpen) return;
     function onOutside(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
+      const target = e.target as Node;
+      if (
+        menuButtonRef.current &&
+        !menuButtonRef.current.contains(target) &&
+        menuDropdownRef.current &&
+        !menuDropdownRef.current.contains(target)
+      ) {
+        setMenuOpen(false);
+      }
     }
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
@@ -105,7 +130,7 @@ function PipelineCard({
 
   return (
     <div
-      className="rounded-xl border overflow-hidden"
+      className="rounded-xl border"
       style={{ background: "#111111", borderColor: "#1f1f1f" }}
     >
       {/* Header */}
@@ -178,19 +203,29 @@ function PipelineCard({
           >
             <polyline points="6 9 12 15 18 9" />
           </svg>
-          <div className="relative" ref={menuRef}>
+          <div className="relative">
             <button
-              onClick={() => setMenuOpen((o) => !o)}
+              ref={menuButtonRef}
+              onClick={toggleMenu}
               className="w-6 h-6 rounded-md flex items-center justify-center text-xs transition-colors duration-150"
               style={{ background: "#1a1a1a", color: "#f5f5f5" }}
               aria-label="Pipeline options"
             >
               ⋯
             </button>
-            {menuOpen && (
+            {menuOpen && menuPos && (
               <div
-                className="absolute right-0 mt-1 w-44 rounded-lg border py-1 z-30"
-                style={{ background: "#161616", borderColor: "#1f1f1f" }}
+                ref={menuDropdownRef}
+                className="rounded-lg border py-1"
+                style={{
+                  position: "fixed",
+                  top: menuPos.top,
+                  left: menuPos.left,
+                  width: MENU_WIDTH,
+                  zIndex: 9999,
+                  background: "#161616",
+                  borderColor: "#1f1f1f",
+                }}
               >
                 <Link
                   href={`/pipelines/${pipeline.id}/chat`}
