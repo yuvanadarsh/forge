@@ -30,6 +30,7 @@ import type {
   SendMessageResult,
   TaskCreatePayload,
   TaskListFilters,
+  TaskRunResult,
   TaskUpdatePayload,
   TokenUsageInterval,
   TokenUsageSeries,
@@ -151,6 +152,7 @@ export const createTask = (payload: TaskCreatePayload) =>
 export const updateTask = (taskId: string, payload: TaskUpdatePayload) =>
   patch<BackendTask>(`/api/tasks/${taskId}`, payload);
 export const deleteTask = (taskId: string) => del(`/api/tasks/${taskId}`);
+export const runTask = (taskId: string) => post<TaskRunResult>(`/api/tasks/${taskId}/run`);
 
 // ---------------------------------------------------------------- conversations
 

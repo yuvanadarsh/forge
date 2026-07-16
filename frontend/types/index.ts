@@ -177,6 +177,13 @@ export interface TaskListFilters {
   pipeline_id?: string;
 }
 
+/** POST /api/tasks/{id}/run — the run continues in the background. */
+export interface TaskRunResult {
+  conversation_id: string;
+  task_id: string;
+  status: "running";
+}
+
 export interface BackendConversation extends Omit<Conversation, "agent_id"> {
   agent_id: string | null; // null = pipeline-level conversation
 }

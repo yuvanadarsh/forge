@@ -12,6 +12,7 @@ import {
   createConversation,
   listConversations,
   listMessages,
+  listTasks,
   sendMessage,
   updateConversation,
 } from "@/lib/api";
@@ -167,6 +168,40 @@ export default function ConversationPage({
       setToast(`Rename failed: ${err instanceof Error ? err.message : "backend unreachable"}`);
     }
   }
+
+  // While this conversation's task is executing in the background, poll for
+  // new messages every 3s so the agent's reply appears without a refresh.
+  const pollTask = conversation?.task_id
+    ? state.tasks.find((t) => t.id === conversation.task_id)
+    : null;
+  const taskRunning = pollTask?.status === "in_progress";
+
+  useEffect(() => {
+    if (!taskRunning || isNew) return;
+    const interval = setInterval(async () => {
+      try {
+        const first = await listMessages(convId, 1);
+        const lastPage = Math.max(1, Math.ceil(first.total / first.page_size));
+        const latest = lastPage === 1 ? first : await listMessages(convId, lastPage);
+        // Also fetch the page before the tail in case new messages crossed a
+        // page boundary since the last poll.
+        const before = lastPage > 1 ? await listMessages(convId, lastPage - 1) : null;
+        setMessages((prev) => {
+          const known = new Set(prev.map((m) => m.id));
+          const incoming = [...(before?.items ?? []), ...latest.items].filter(
+            (m) => !known.has(m.id),
+          );
+          return incoming.length > 0 ? [...prev, ...incoming] : prev;
+        });
+        // Refresh tasks so the poll stops once the run finishes.
+        const tasks = await listTasks();
+        dispatch({ type: "SET_TASKS", tasks });
+      } catch {
+        // Transient poll failure — the next tick retries.
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [taskRunning, convId, isNew, dispatch]);
 
   if (!agentsLoading && agent === null) notFound();
 
@@ -345,6 +380,24 @@ export default function ConversationPage({
                   <span className="whitespace-pre-wrap">{pendingText}</span>
                 </div>
                 <div className="text-[10px] px-1" style={{ color: "#3f3f46" }}>sending…</div>
+              </div>
+            </div>
+          )}
+
+          {/* Background task run indicator */}
+          {taskRunning && !thinking && (
+            <div className="flex gap-3 flex-row">
+              <div
+                className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-1"
+                style={{ background: agent.avatar_color, color: "#fff" }}
+              >
+                {agent.name[0]}
+              </div>
+              <div
+                className="px-4 py-3 text-sm animate-pulse"
+                style={{ background: "#111111", color: "#71717a", border: "1px solid #1f1f1f", borderRadius: "4px 18px 18px 18px" }}
+              >
+                {agent.name} is working on this task…
               </div>
             </div>
           )}

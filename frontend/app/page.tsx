@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import AgentCard from "@/components/AgentCard";
 import TaskCard from "@/components/TaskCard";
 import Toast from "@/components/Toast";
@@ -10,7 +11,7 @@ import TaskSlideOver from "@/components/TaskSlideOver";
 import CostAnalyticsGraph from "@/components/CostAnalyticsGraph";
 import EmptyState from "@/components/EmptyState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
-import { updateTask } from "@/lib/api";
+import { runTask, updateTask } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendAgent, BackendTask, Task } from "@/types";
 
@@ -22,6 +23,7 @@ const COLUMNS: { key: Task["status"]; label: string }[] = [
 ];
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { state, dispatch } = useForge();
   const [toast, setToast] = useState<string | null>(null);
   const [showTaskModal, setShowTaskModal] = useState(false);
@@ -43,6 +45,23 @@ export default function DashboardPage() {
     dispatch({ type: "ADD_AGENT", agent });
     setShowAgentModal(false);
     setToast(`Agent "${agent.name}" created`);
+  }
+
+  async function handleRunTask(task: BackendTask) {
+    if (!task.assigned_to) {
+      setToast("Assign an agent to this task before running it.");
+      return;
+    }
+    const previous = task;
+    // Optimistic: the card jumps to In Progress immediately, reverts on error.
+    dispatch({ type: "UPDATE_TASK", task: { ...task, status: "in_progress" } });
+    try {
+      const result = await runTask(task.id);
+      router.push(`/agents/${task.assigned_to}/conversations/${result.conversation_id}`);
+    } catch (err) {
+      dispatch({ type: "UPDATE_TASK", task: previous });
+      setToast(`Could not run task: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
   }
 
   async function handleMoveTask(task: BackendTask, status: Task["status"]) {
@@ -188,7 +207,7 @@ export default function DashboardPage() {
                         key={task.id}
                         task={task}
                         agent={getAgent(task.assigned_to)}
-                        onRun={() => setToast("Coming soon — agent execution not yet wired.")}
+                        onRun={() => handleRunTask(task)}
                         onClick={() => setSelectedTask(task)}
                         onMove={(status) => handleMoveTask(task, status)}
                       />
@@ -226,6 +245,7 @@ export default function DashboardPage() {
         <TaskSlideOver
           task={selectedTask}
           agent={getAgent(selectedTask.assigned_to)}
+          onRun={() => handleRunTask(selectedTask)}
           onClose={() => setSelectedTask(null)}
         />
       )}

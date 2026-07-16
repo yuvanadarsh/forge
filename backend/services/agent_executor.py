@@ -18,10 +18,21 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.connection import get_session_factory
-from db.models import Agent, ApiKey, Conversation, Message, PipelineRun, Settings, Task, TokenUsage
+from db.models import (
+    Agent,
+    ApiKey,
+    Conversation,
+    Message,
+    Notification,
+    Pipeline,
+    PipelineRun,
+    Settings,
+    Task,
+    TokenUsage,
+)
 from services import memory_service
 from services.crypto import CryptoError, decrypt_key, get_secret_key
-from services.streaming import StreamingManager
+from services.streaming import StreamingManager, streaming_manager
 from services.tool_registry import (
     NeedsApprovalError,
     ToolError,
@@ -246,7 +257,7 @@ async def _execute_tool(
     *,
     agent: Agent,
     conversation_id: uuid.UUID,
-    pipeline_run_id: uuid.UUID,
+    pipeline_run_id: uuid.UUID | None,
     workspace_path: str,
     settings_dict: dict,
     streaming_manager: StreamingManager,
@@ -286,6 +297,15 @@ async def _execute_tool(
                         )
                         return json.dumps(result)
                     except NeedsApprovalError as exc:
+                        if pipeline_run_id is None:
+                            # Single-agent task runs have no approval-gate UI;
+                            # a gated command must fail, never silently run.
+                            raise ToolError(
+                                f"Command requires human approval ({exc.reason}) and task "
+                                "runs have no approval gate. Add the command to "
+                                "allowed_commands in Settings, or run this task inside "
+                                "a pipeline."
+                            ) from exc
                         await _handle_command_approval(
                             exc,
                             agent=agent,
@@ -419,14 +439,17 @@ async def execute_agent(
     agent: Agent,
     task: Task,
     conversation_id: uuid.UUID,
-    pipeline_run_id: uuid.UUID,
+    pipeline_run_id: uuid.UUID | None,
     workspace_path: str,
     prior_context: list[dict],
     settings: Settings,
     streaming_manager: StreamingManager,
 ) -> AgentOutput:
     session_factory = get_session_factory()
-    run_id = str(pipeline_run_id)
+    # pipeline_run_id None = standalone task run: no WebSocket listener exists
+    # for the synthetic key, so streaming calls become no-ops, and command
+    # approval gates are unavailable (gated commands fail as tool errors).
+    run_id = str(pipeline_run_id) if pipeline_run_id is not None else f"task:{task.id}"
 
     # 1. Recall relevant memories (top 5, similarity >= 0.3)
     async with session_factory() as db:
@@ -571,3 +594,90 @@ async def execute_agent(
                 agent_row.status = "idle"
                 agent_row.last_active = datetime.now(timezone.utc)
                 await db.commit()
+
+
+async def run_task_agent(task_id: uuid.UUID, conversation_id: uuid.UUID) -> None:
+    """Background entry point for single-agent task runs (POST /api/tasks/{id}/run).
+
+    Runs execute_agent with no pipeline run: memory recall and token usage
+    still persist, but nothing streams (no WebSocket listener) and gated
+    commands fail instead of pausing. The task lands in 'review' on success
+    and back in 'backlog' on failure so it never sticks in 'in_progress'.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        task = await db.get(Task, task_id)
+        if task is None or task.assigned_to is None:
+            return
+        agent = await db.get(Agent, task.assigned_to)
+        if agent is None:
+            return
+        settings = (await db.execute(select(Settings))).scalar_one_or_none()
+        if settings is None:  # single-row config; recreate defaults if the seed is missing
+            settings = Settings(id=1)
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+        # Tasks have no workspace of their own: use the linked pipeline's
+        # workspace when there is one, else the global workspace root.
+        workspace_path = None
+        if task.pipeline_id is not None:
+            pipeline = await db.get(Pipeline, task.pipeline_id)
+            if pipeline is not None:
+                workspace_path = pipeline.workspace_path
+        if not workspace_path:
+            workspace_path = os.path.expanduser(settings.workspace_root)
+    os.makedirs(workspace_path, exist_ok=True)
+
+    try:
+        output = await execute_agent(
+            agent=agent,
+            task=task,
+            conversation_id=conversation_id,
+            pipeline_run_id=None,
+            workspace_path=workspace_path,
+            prior_context=[],
+            settings=settings,
+            streaming_manager=streaming_manager,
+        )
+    except Exception as exc:
+        logger.exception("Task run %s failed", task_id)
+        async with session_factory() as db:
+            row = await db.get(Task, task_id)
+            if row is not None and row.status == "in_progress":
+                row.status = "backlog"
+            db.add(
+                Message(
+                    conversation_id=conversation_id,
+                    agent_id=agent.id,
+                    role="assistant",
+                    content=f"⚠️ Task run failed: {exc}",
+                )
+            )
+            db.add(
+                Notification(
+                    type="agent_error",
+                    title=f"Task failed: {task.title}",
+                    body=str(exc)[:500],
+                    link=f"/agents/{agent.id}/conversations/{conversation_id}",
+                )
+            )
+            conv = await db.get(Conversation, conversation_id)
+            if conv is not None:
+                conv.last_message = f"⚠️ Task run failed: {exc}"[:300]
+                conv.last_active = datetime.now(timezone.utc)
+            await db.commit()
+    else:
+        async with session_factory() as db:
+            row = await db.get(Task, task_id)
+            if row is not None and row.status == "in_progress":
+                row.status = "review"
+            db.add(
+                Notification(
+                    type="info",
+                    title=f"Task complete: {task.title}",
+                    body=output.content[:500],
+                    link=f"/agents/{agent.id}/conversations/{conversation_id}",
+                )
+            )
+            await db.commit()
