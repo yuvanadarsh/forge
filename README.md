@@ -178,7 +178,7 @@ Every file access and command is audit-logged and confined to the pipeline's wor
 | LLM / Embeddings | Anthropic SDK · VoyageAI (voyage-3, 1024-dim) |
 | Database | PostgreSQL on host with pgvector + pgcrypto |
 | Security | AES-256-GCM key vault, workspace path containment, command allow/deny lists |
-| Ops | Docker Compose (backend + frontend; DB stays on host) |
+| Ops | Docker Compose (backend only) + native frontend; DB stays on host |
 
 No UI component library — everything built from scratch with Tailwind.
 
@@ -186,9 +186,8 @@ No UI component library — everything built from scratch with Tailwind.
 
 ## Running Locally
 
-**Prerequisites:** PostgreSQL running on the host with pgvector extension
-(`brew install postgresql` then `brew install pgvector` on macOS).
-Docker Desktop must be running.
+**Prerequisites:** PostgreSQL running on host with pgvector extension.
+Docker Desktop running.
 
 1. Clone the repo:
    ```bash
@@ -200,10 +199,8 @@ Docker Desktop must be running.
    ```bash
    cp .env.example .env
    ```
-   Fill in `.env`:
-   - `DB_USER` / `DB_PASSWORD` / `DB_NAME` — your local Postgres credentials
-   - `SECRET_KEY` — generate with `openssl rand -hex 32`
-   - `VOYAGE_API_KEY` — optional, memory search degrades gracefully without it
+   Fill in: DB_USER, DB_PASSWORD, DB_NAME, SECRET_KEY (`openssl rand -hex 32`),
+   and optionally VOYAGE_API_KEY and BACKEND_PORT (if 8000 is taken).
 
 3. Create the database and run the migration:
    ```bash
@@ -211,30 +208,32 @@ Docker Desktop must be running.
    psql -U your_user -d forge -f backend/db/migrations/001_initial.sql
    ```
 
-4. Start everything:
+4. Start the backend (Docker):
    ```bash
    docker compose up --build
    ```
-   Hot reload is enabled — code changes on your machine reflect
-   inside the containers instantly without restarting.
 
-5. Open [http://localhost:3000](http://localhost:3000)
+5. Start the frontend (native, new terminal):
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+6. Open [http://localhost:3000](http://localhost:3000)
    Go to **Settings → API Keys** and add your Anthropic API key.
 
 API health check: [http://localhost:8000/health](http://localhost:8000/health)
 API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
-### Port Conflicts
-If ports 8000 or 3000 are already in use by another project,
-add these to your `.env` file before running:
+**Why two terminals?**
+Running the frontend natively avoids node_modules architecture mismatches
+on Apple Silicon Macs. The backend runs in Docker for environment consistency.
+Hot reload works on both services.
 
-```
-BACKEND_PORT=8001   # or any free port
-FRONTEND_PORT=3001  # or any free port
-```
-
-Then run `docker compose up --build` as normal.
-No code changes needed.
+**Port conflicts:**
+If port 8000 is taken, add `BACKEND_PORT=8001` to your `.env` file and
+update `frontend/.env.local` to match.
 
 ---
 
@@ -256,7 +255,7 @@ backend/
     models.py                 SQLAlchemy 2.0 models (13 tables)
     migrations/001_initial.sql
   requirements.txt · Dockerfile
-docker-compose.yml            backend + frontend, host Postgres via host.docker.internal
+docker-compose.yml            backend only (frontend runs natively), host Postgres via host.docker.internal
 
 frontend/app/
   page.tsx                    Dashboard (/ — agent grid + kanban + cost analytics graph)
