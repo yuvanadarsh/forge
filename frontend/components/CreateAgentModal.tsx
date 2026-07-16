@@ -1,8 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { createAgent } from "@/lib/api";
-import type { BackendAgent } from "@/types";
+import { createAgent, listApiKeys } from "@/lib/api";
+import type { ApiKeyInfo, BackendAgent } from "@/types";
+
+const PROVIDER_MODELS: { provider: string; label: string; models: string[] }[] = [
+  { provider: "anthropic", label: "Anthropic", models: ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"] },
+  { provider: "openai", label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini"] },
+  { provider: "gemini", label: "Gemini", models: ["gemini-2.5-pro"] },
+  { provider: "deepseek", label: "DeepSeek", models: ["deepseek-chat"] },
+];
 
 const COLOR_PRESETS = [
   "#6366f1",
@@ -108,6 +115,24 @@ export default function CreateAgentModal({ onClose, onCreate, onError }: Props) 
   const [name, setName] = useState("");
   const [color, setColor] = useState(COLOR_PRESETS[0]);
   const [submitting, setSubmitting] = useState(false);
+  const [apiKeys, setApiKeys] = useState<ApiKeyInfo[] | null>(null);
+  const [model, setModel] = useState("");
+
+  useEffect(() => {
+    listApiKeys()
+      .then(setApiKeys)
+      .catch(() => setApiKeys([]));
+  }, []);
+
+  const availableGroups = PROVIDER_MODELS.filter((g) =>
+    apiKeys?.some((k) => k.provider.toLowerCase() === g.provider),
+  );
+
+  useEffect(() => {
+    if (!model && availableGroups.length > 0) {
+      setModel(availableGroups[0].models[0]);
+    }
+  }, [availableGroups, model]);
 
   function handlePresetChange(key: string) {
     setPreset(key);
@@ -127,6 +152,7 @@ export default function CreateAgentModal({ onClose, onCreate, onError }: Props) 
         specialty,
         avatar_color: color,
         system_prompt: systemPrompt,
+        model: model || undefined,
       });
       onCreate(agent);
     } catch (err) {
@@ -258,15 +284,38 @@ export default function CreateAgentModal({ onClose, onCreate, onError }: Props) 
             />
           </div>
 
-          {/* Model note */}
-          <div
-            className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs border"
-            style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#71717a" }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" style={{ color: "#f59e0b" }}>
-              <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-            </svg>
-            Model determined by provider. Configure providers in Settings.
+          {/* Model */}
+          <div>
+            <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>Model</label>
+            {apiKeys !== null && availableGroups.length === 0 ? (
+              <>
+                <select disabled className={`${inputClass} cursor-not-allowed opacity-60`} style={inputStyle}>
+                  <option>Configure API keys in Settings</option>
+                </select>
+                <p className="text-xs mt-1" style={{ color: "#3f3f46" }}>
+                  No providers configured yet — add an API key in Settings to select a model.
+                </p>
+              </>
+            ) : (
+              <select
+                value={model}
+                onChange={(e) => setModel(e.target.value)}
+                disabled={apiKeys === null}
+                className={`${inputClass} cursor-pointer`}
+                style={inputStyle}
+                onFocus={focusBorder}
+                onBlur={blurBorder}
+              >
+                {apiKeys === null && <option>Loading providers…</option>}
+                {availableGroups.map((g) => (
+                  <optgroup key={g.provider} label={g.label}>
+                    {g.models.map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* System Prompt */}
