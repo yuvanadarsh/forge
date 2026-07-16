@@ -8,9 +8,18 @@ interface Props {
   onChange: (v: string) => void;
   onSend: () => void;
   participants?: BackendAgent[];
+  disabled?: boolean;
+  placeholder?: string;
 }
 
-export default function PipelineChatInput({ value, onChange, onSend, participants = [] }: Props) {
+export default function PipelineChatInput({
+  value,
+  onChange,
+  onSend,
+  participants = [],
+  disabled = false,
+  placeholder = "Message the pipeline... (type @ to mention an agent)",
+}: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
@@ -114,21 +123,22 @@ export default function PipelineChatInput({ value, onChange, onSend, participant
           ref={ref}
           value={value}
           rows={2}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Message the pipeline... (type @ to mention an agent)"
-          className="flex-1 px-4 py-3 rounded-xl text-sm outline-none border transition-colors duration-150 resize-none"
+          placeholder={placeholder}
+          className="flex-1 px-4 py-3 rounded-xl text-sm outline-none border transition-colors duration-150 resize-none disabled:cursor-not-allowed"
           style={{ background: "#111111", borderColor: "#1f1f1f", color: "#f5f5f5" }}
           onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
           onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
         />
         <button
           onClick={onSend}
-          disabled={!value.trim()}
-          className="px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 shrink-0"
+          disabled={disabled || !value.trim()}
+          className="px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 shrink-0 disabled:cursor-not-allowed"
           style={{
-            background: value.trim() ? "#f59e0b" : "#1f1f1f",
-            color: value.trim() ? "#0a0a0a" : "#3f3f46",
+            background: !disabled && value.trim() ? "#f59e0b" : "#1f1f1f",
+            color: !disabled && value.trim() ? "#0a0a0a" : "#3f3f46",
           }}
         >
           Send

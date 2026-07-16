@@ -372,6 +372,16 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
 
+        {/* Pipeline-not-running notice */}
+        {displayStatus !== "running" && (
+          <div
+            className="mx-6 mt-3 px-4 py-2 rounded-lg text-xs shrink-0"
+            style={{ background: "#141414", color: "#71717a", border: "1px solid #2a2a2a" }}
+          >
+            Pipeline is not running. Start it to enable agent responses.
+          </div>
+        )}
+
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
           {historyMsgs.length === 0 && liveItems.length === 0 && (
@@ -517,7 +527,18 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
         {/* Input */}
         {displayStatus !== "completed" && displayStatus !== "failed" && (
-          <PipelineChatInput value={input} onChange={setInput} onSend={handleSend} participants={participants} />
+          <PipelineChatInput
+            value={input}
+            onChange={setInput}
+            onSend={handleSend}
+            participants={participants}
+            disabled={displayStatus !== "running" && displayStatus !== "paused_for_approval"}
+            placeholder={
+              displayStatus !== "running" && displayStatus !== "paused_for_approval"
+                ? "Start the pipeline to send messages"
+                : undefined
+            }
+          />
         )}
       </div>
 

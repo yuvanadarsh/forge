@@ -15,6 +15,8 @@ import {
   deletePipeline,
   getPipeline,
   listAgents,
+  restorePipeline,
+  stopPipeline,
 } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendAgent, BackendPipeline } from "@/types";
@@ -59,6 +61,8 @@ interface PipelineCardProps {
   onApprove: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  onRestore: () => void;
+  onForceStop: () => void;
   onToast: (message: string) => void;
 }
 
@@ -72,12 +76,15 @@ function PipelineCard({
   onApprove,
   onArchive,
   onDelete,
+  onRestore,
+  onForceStop,
   onToast,
 }: PipelineCardProps) {
   const s = STATUS_STYLES[pipeline.status] ?? STATUS_STYLES.completed;
   const isActive = ACTIVE_STATUSES.includes(pipeline.status);
   const [menuOpen, setMenuOpen] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [confirmingStop, setConfirmingStop] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -193,7 +200,18 @@ function PipelineCard({
                 >
                   Open Pipeline Chat
                 </Link>
-                {pipeline.status !== "archived" && (
+                {pipeline.status === "archived" ? (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onRestore();
+                    }}
+                    className={`${menuItem} hover:bg-[#1f1f1f]`}
+                    style={{ color: "#f5f5f5" }}
+                  >
+                    Restore
+                  </button>
+                ) : (
                   <button
                     disabled={isActive}
                     title={isActive ? blockedTitle : undefined}
@@ -206,6 +224,18 @@ function PipelineCard({
                     style={{ color: isActive ? "#3f3f46" : "#f5f5f5" }}
                   >
                     Archive
+                  </button>
+                )}
+                {pipeline.status === "running" && (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      setConfirmingStop(true);
+                    }}
+                    className={`${menuItem} hover:bg-[#1f1f1f]`}
+                    style={{ color: "#ef4444" }}
+                  >
+                    Force Stop
                   </button>
                 )}
                 <button
@@ -304,6 +334,19 @@ function PipelineCard({
           onCancel={() => setConfirmingDelete(false)}
         />
       )}
+
+      {confirmingStop && (
+        <ConfirmDialog
+          title="Force stop this pipeline?"
+          message="The current run will be marked as failed."
+          confirmLabel="Force Stop"
+          onConfirm={() => {
+            setConfirmingStop(false);
+            onForceStop();
+          }}
+          onCancel={() => setConfirmingStop(false)}
+        />
+      )}
     </div>
   );
 }
@@ -393,6 +436,26 @@ export default function PipelinesPage() {
     }
   }
 
+  async function handleRestore(pipeline: BackendPipeline) {
+    try {
+      const updated = await restorePipeline(pipeline.id);
+      dispatch({ type: "UPDATE_PIPELINE", pipeline: updated });
+      setToast(`Pipeline "${pipeline.title}" restored`);
+    } catch (err) {
+      setToast(`Could not restore: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
+  }
+
+  async function handleForceStop(pipeline: BackendPipeline) {
+    try {
+      const updated = await stopPipeline(pipeline.id);
+      dispatch({ type: "UPDATE_PIPELINE", pipeline: updated });
+      setToast(`Pipeline "${pipeline.title}" force stopped`);
+    } catch (err) {
+      setToast(`Could not force stop: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
+  }
+
   async function handleDelete(pipeline: BackendPipeline) {
     try {
       await deletePipeline(pipeline.id);
@@ -416,6 +479,8 @@ export default function PipelinesPage() {
       onApprove={() => handleApprove(pipeline)}
       onArchive={() => handleArchive(pipeline)}
       onDelete={() => handleDelete(pipeline)}
+      onRestore={() => handleRestore(pipeline)}
+      onForceStop={() => handleForceStop(pipeline)}
       onToast={setToast}
     />
   );
