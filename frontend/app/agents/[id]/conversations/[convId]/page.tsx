@@ -10,6 +10,7 @@ import Toast from "@/components/Toast";
 import ConversationMenu from "@/components/ConversationMenu";
 import {
   createConversation,
+  listAgents,
   listConversations,
   listMessages,
   listTasks,
@@ -140,6 +141,21 @@ export default function ConversationPage({
       } else {
         // refresh sidebar previews
         listConversations({ agent_id: id }).then(setAgentConvos).catch(() => {});
+      }
+      // Eternal agents (Atlas) can create agents mid-chat: refresh the
+      // roster so new agents appear everywhere without a reload.
+      if (agent?.is_eternal) {
+        try {
+          const known = new Set(state.agents.map((a) => a.id));
+          const refreshed = await listAgents();
+          dispatch({ type: "SET_AGENTS", agents: refreshed });
+          const created = refreshed.filter((a) => !known.has(a.id));
+          if (created.length > 0) {
+            setToast(`Agent ${created.map((a) => a.name).join(", ")} created successfully`);
+          }
+        } catch {
+          // Roster refresh is best-effort — the reply itself already landed.
+        }
       }
     } catch (err) {
       setPendingText(null);

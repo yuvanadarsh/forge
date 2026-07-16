@@ -36,6 +36,7 @@ from services.streaming import StreamingManager, streaming_manager
 from services.tool_registry import (
     NeedsApprovalError,
     ToolError,
+    create_agent,
     read_file,
     run_command,
     search_codebase,
@@ -106,6 +107,66 @@ TOOLS = [
         },
     },
 ]
+
+# Only eternal agents (Atlas) get this tool — it is appended to their tool
+# list at call time and its dispatch double-checks is_eternal.
+CREATE_AGENT_TOOL = {
+    "name": "create_agent",
+    "description": (
+        "Create a new AI agent in Forge. The agent is registered immediately "
+        "and can then be assigned tasks and pipeline roles."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Short display name, e.g. 'Vega'"},
+            "role": {"type": "string", "description": "Role title, e.g. 'Frontend Developer'"},
+            "specialty": {
+                "type": "string",
+                "description": "One sentence on what this agent is best at",
+            },
+            "system_prompt": {
+                "type": "string",
+                "description": "Full system prompt defining the agent's behavior and expertise",
+            },
+            "model": {
+                "type": "string",
+                "description": "Model id to run the agent on (default claude-sonnet-4-6)",
+            },
+            "avatar_color": {
+                "type": "string",
+                "description": "Hex accent color: #6366f1, #f59e0b, #3b82f6, #22c55e, #ec4899 or #f97316",
+            },
+        },
+        "required": ["name", "role", "specialty", "system_prompt"],
+    },
+}
+
+
+def _tools_for(agent: Agent) -> list[dict]:
+    return [*TOOLS, CREATE_AGENT_TOOL] if agent.is_eternal else TOOLS
+
+
+async def _dispatch_create_agent(
+    agent: Agent,
+    args: dict,
+    db: AsyncSession,
+    pipeline_run_id: uuid.UUID | None = None,
+) -> str:
+    if not agent.is_eternal:
+        raise ToolError("create_agent is reserved for eternal agents")
+    result = await create_agent(
+        name=str(args.get("name", "")),
+        role=str(args.get("role", "")),
+        specialty=str(args.get("specialty", "")),
+        system_prompt=str(args.get("system_prompt", "")),
+        model=str(args.get("model") or "claude-sonnet-4-6"),
+        avatar_color=str(args.get("avatar_color") or "#6366f1"),
+        db=db,
+        creator_agent_id=agent.id,
+        pipeline_run_id=pipeline_run_id,
+    )
+    return json.dumps(result)
 
 
 class ExecutionError(Exception):
@@ -266,6 +327,8 @@ async def _execute_tool(
     """Run one tool call; command approvals block here until resolved."""
     session_factory = get_session_factory()
     async with session_factory() as db:
+        if name == "create_agent":
+            return await _dispatch_create_agent(agent, args, db, pipeline_run_id)
         if name == "read_file":
             output.files_touched.append(args["path"])
             return await read_file(
@@ -319,6 +382,7 @@ async def _execute_tool(
 
 CHAT_HISTORY_LIMIT = 40
 CHAT_MAX_OUTPUT_TOKENS = 4096
+CHAT_MAX_TOOL_ITERATIONS = 5  # Atlas creating a handful of agents per turn is plenty
 
 
 async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
@@ -381,13 +445,53 @@ async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
     if not merged:
         return None
 
+    # Eternal agents (Atlas) get create_agent in chat — their whole job is
+    # designing agents conversationally. Regular agents stay tool-free here.
+    request_kwargs: dict = {
+        "model": agent.model,
+        "max_tokens": CHAT_MAX_OUTPUT_TOKENS,
+        "system": system_prompt,
+    }
+    if agent.is_eternal:
+        request_kwargs["tools"] = [CREATE_AGENT_TOOL]
+
+    input_tokens = 0
+    output_tokens = 0
     try:
-        response = await client.messages.create(
-            model=agent.model,
-            max_tokens=CHAT_MAX_OUTPUT_TOKENS,
-            system=system_prompt,
-            messages=merged,
-        )
+        response = await client.messages.create(messages=merged, **request_kwargs)
+        input_tokens += response.usage.input_tokens
+        output_tokens += response.usage.output_tokens
+
+        for _ in range(CHAT_MAX_TOOL_ITERATIONS):
+            if response.stop_reason != "tool_use":
+                break
+            merged.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                try:
+                    if block.name != "create_agent":
+                        raise ToolError(f"Tool '{block.name}' is not available in chat")
+                    async with session_factory() as db:
+                        result_str = await _dispatch_create_agent(
+                            agent, dict(block.input), db
+                        )
+                    is_error = False
+                except ToolError as exc:
+                    result_str, is_error = f"Error: {exc}", True
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_str,
+                        **({"is_error": True} if is_error else {}),
+                    }
+                )
+            merged.append({"role": "user", "content": tool_results})
+            response = await client.messages.create(messages=merged, **request_kwargs)
+            input_tokens += response.usage.input_tokens
+            output_tokens += response.usage.output_tokens
     except Exception as exc:
         async with session_factory() as db:
             agent_row = await db.get(Agent, agent.id)
@@ -397,8 +501,6 @@ async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
         raise ExecutionError(f"Anthropic call failed: {exc}") from exc
 
     text = "".join(b.text for b in response.content if b.type == "text")
-    input_tokens = response.usage.input_tokens
-    output_tokens = response.usage.output_tokens
     cost = _cost(agent.model, input_tokens, output_tokens)
 
     async with session_factory() as db:
@@ -491,7 +593,7 @@ async def execute_agent(
                 max_tokens=MAX_OUTPUT_TOKENS,
                 system=system_prompt,
                 messages=messages,
-                tools=TOOLS,
+                tools=_tools_for(agent),
             ) as stream:
                 async for event in stream:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":

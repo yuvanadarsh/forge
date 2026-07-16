@@ -147,7 +147,7 @@ CREATE TABLE file_access_log (
     pipeline_run_id UUID REFERENCES pipeline_runs(id) ON DELETE CASCADE,
     agent_id        UUID REFERENCES agents(id) ON DELETE SET NULL,
     path            TEXT NOT NULL,
-    operation       TEXT NOT NULL CHECK (operation IN ('read', 'write', 'search')),
+    operation       TEXT NOT NULL CHECK (operation IN ('read', 'write', 'search', 'agent_created')),
     bytes           INTEGER,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

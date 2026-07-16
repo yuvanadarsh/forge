@@ -1,20 +1,22 @@
-"""Agent tools: read_file, write_file, run_command, search_codebase.
+"""Agent tools: read_file, write_file, run_command, search_codebase, create_agent.
 
 Every path is confined to the pipeline's workspace_path (symlinks are
 resolved before the containment check). Every call is auditable: pass a
 db session and the tool writes to file_access_log / command_log.
+create_agent is only exposed to eternal agents (Atlas).
 """
 
 import asyncio
 import fnmatch
 import os
+import re
 import time
 import uuid
 from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import CommandLog, FileAccessLog
+from db.models import Agent, CommandLog, FileAccessLog
 
 COMMAND_TIMEOUT_SECONDS = 60
 MAX_COMMAND_OUTPUT_CHARS = 50_000   # keep model context and command_log rows bounded
@@ -201,6 +203,66 @@ async def run_command(
         await db.commit()
 
     return {"command": command, "output": output, "exit_code": exit_code, "duration_ms": duration_ms}
+
+
+_HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+async def create_agent(
+    name: str,
+    role: str,
+    specialty: str,
+    system_prompt: str,
+    model: str = "claude-sonnet-4-6",
+    avatar_color: str = "#6366f1",
+    *,
+    db: AsyncSession | None = None,
+    creator_agent_id: uuid.UUID | None = None,
+    pipeline_run_id: uuid.UUID | None = None,
+) -> dict:
+    """Create a new agent in Forge and return the created agent.
+
+    Only eternal agents (Atlas) get this tool — callers enforce that before
+    dispatching. The creation is audited in file_access_log with
+    operation='agent_created'.
+    """
+    if db is None:
+        raise ToolError("create_agent needs a database session")
+    name, role = name.strip(), role.strip()
+    if not name or not role:
+        raise ToolError("Both 'name' and 'role' are required to create an agent")
+    if not system_prompt.strip():
+        raise ToolError("'system_prompt' is required — it defines the agent's behavior")
+    if not _HEX_COLOR.match(avatar_color):
+        avatar_color = "#6366f1"
+
+    agent = Agent(
+        name=name,
+        role=role,
+        specialty=specialty.strip(),
+        system_prompt=system_prompt.strip(),
+        model=model.strip() or "claude-sonnet-4-6",
+        avatar_color=avatar_color,
+    )
+    db.add(agent)
+    await db.flush()
+    db.add(
+        FileAccessLog(
+            pipeline_run_id=pipeline_run_id,
+            agent_id=creator_agent_id,
+            path=f"agent:{agent.id}",
+            operation="agent_created",
+            bytes=None,
+        )
+    )
+    await db.commit()
+    return {
+        "id": str(agent.id),
+        "name": agent.name,
+        "role": agent.role,
+        "specialty": agent.specialty,
+        "status": "created",
+    }
 
 
 def _load_gitignore(workspace: Path) -> list[str]:
