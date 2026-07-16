@@ -48,6 +48,14 @@ type LiveItem =
 let liveIdCounter = 0;
 const nextLiveId = () => `live-${++liveIdCounter}`;
 
+function formatRunTimestamp(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return `${datePart} at ${timePart}`;
+}
+
 export default function PipelineChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { state } = useForge();
@@ -182,10 +190,12 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         if (cancelled) return;
         setPipeline(detail);
         setFetchState("ready");
-        if (detail.current_run && ACTIVE_RUN_STATUSES.includes(detail.current_run.status)) {
+        if (detail.current_run) {
           setRun(detail.current_run);
-          setLiveStatus(detail.current_run.status);
-          connectSocket(detail.current_run.id);
+          if (ACTIVE_RUN_STATUSES.includes(detail.current_run.status)) {
+            setLiveStatus(detail.current_run.status);
+            connectSocket(detail.current_run.id);
+          }
         }
         const convos = await listConversations({ pipeline_id: id });
         if (cancelled) return;
@@ -461,18 +471,38 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           <div ref={bottomRef} />
         </div>
 
-        {/* Not-running banner */}
-        {!runIsActive && (
+        {/* Finished-run status bar */}
+        {!runIsActive && (displayStatus === "completed" || displayStatus === "failed") && (
+          <div
+            className="mx-6 mb-3 px-4 py-3 rounded-xl border flex items-center justify-between gap-3 shrink-0"
+            style={{ background: "#141414", borderColor: "#2a2a2a" }}
+          >
+            <span className="flex items-center gap-2 text-xs" style={{ color: "#71717a" }}>
+              <span style={{ color: displayStatus === "completed" ? "#22c55e" : "#ef4444" }}>
+                {displayStatus === "completed" ? "✓" : "✕"}
+              </span>
+              {displayStatus === "completed" ? "Run completed" : "Run failed"}
+              {run?.completed_at && <span>· {formatRunTimestamp(run.completed_at)}</span>}
+            </span>
+            <button
+              onClick={handleApproveAndStart}
+              disabled={approving}
+              className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors duration-150 shrink-0"
+              style={{ background: "#f59e0b", color: "#0a0a0a" }}
+            >
+              {approving ? "Starting…" : displayStatus === "completed" ? "Run Again →" : "Retry →"}
+            </button>
+          </div>
+        )}
+
+        {/* Not-running banner (no run started yet) */}
+        {!runIsActive && displayStatus !== "completed" && displayStatus !== "failed" && (
           <div
             className="mx-6 mb-3 px-4 py-3 rounded-xl border flex items-center justify-between gap-3 shrink-0"
             style={{ background: "#141414", borderColor: "#2a2a2a" }}
           >
             <span className="text-xs" style={{ color: "#71717a" }}>
-              {displayStatus === "completed"
-                ? "Last run completed. Start a new run to continue."
-                : displayStatus === "failed"
-                  ? "Last run failed. You can start a new run."
-                  : "Pipeline not running."}
+              Pipeline not running.
             </span>
             <button
               onClick={handleApproveAndStart}
@@ -486,7 +516,9 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         )}
 
         {/* Input */}
-        <PipelineChatInput value={input} onChange={setInput} onSend={handleSend} participants={participants} />
+        {displayStatus !== "completed" && displayStatus !== "failed" && (
+          <PipelineChatInput value={input} onChange={setInput} onSend={handleSend} participants={participants} />
+        )}
       </div>
 
       {/* Right panel — participants */}
