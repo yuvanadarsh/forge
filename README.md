@@ -8,6 +8,19 @@ ships it — with you in the loop at every critical step.
 
 ---
 
+## Quick Install (recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yuvanadarsh/forge/main/install.sh | bash
+```
+
+Requires Docker Desktop and PostgreSQL running on your machine (with
+[pgvector](https://github.com/pgvector/pgvector)). The script pulls the
+pre-built images from GHCR, sets up the database, and starts Forge at
+<http://localhost:3000> — no source checkout needed.
+
+To update later: `cd ~/.forge && docker compose pull && docker compose up -d`
+
 ## What makes Forge different
 
 - **Human-in-the-loop by design** — you approve plans before agents touch code,
@@ -38,10 +51,17 @@ ships it — with you in the loop at every critical step.
 - [x] Cost protection — per-run, per-agent, and daily spending ceilings
 - [x] Encrypted API key vault with one-click provider testing
 - [x] Token usage and cost analytics per agent, provider, and time bucket
+- [x] Persistent pipeline chat — keep working with your agents after a run finishes
+- [x] Tool call history persisted to the database (survives page reloads)
+- [x] Live agent status dots and typing indicators in pipeline chat
+- [x] One-command install with pre-built GHCR images (`install.sh`)
 - [ ] Additional execution providers (OpenAI, Gemini, local models)
 - [ ] Re-embedding of agent memory on model change
 
-## Quick Start
+## For Developers (build from source)
+
+Prefer hot reload and a local checkout? This is the `docker compose up --build`
+path — the backend bind-mounts with `--reload`; rebuild after frontend changes.
 
 **Prerequisites:** Docker Desktop, and PostgreSQL 15+ running on the host with
 the [pgvector](https://github.com/pgvector/pgvector) extension
@@ -128,6 +148,11 @@ for a single-agent execution — same tools, same audit trail, no pipeline.
 | Database | PostgreSQL on host with pgvector + pgcrypto |
 | Security | AES-256-GCM key vault, workspace containment, command allow/deny lists |
 | Ops | Docker Compose (backend + frontend; DB stays on host) |
+| Distribution | Pre-built images on GHCR (`ghcr.io/yuvanadarsh/forge-backend`, `-frontend`), published by GitHub Actions on every push to main |
+
+Two ways to run the containers: `docker-compose.yml` builds from source (dev),
+while `docker-compose.prod.yml` pulls the pre-built GHCR images — that's what
+`install.sh` uses, so end users never need the repo or a build toolchain.
 
 ## Screenshots
 
@@ -136,6 +161,17 @@ for a single-agent execution — same tools, same audit trail, no pipeline.
 ![Dashboard](docs/screenshots/dashboard.png)
 ![Pipeline chat with approval gate](docs/screenshots/pipeline-chat.png)
 ![Atlas creating an agent](docs/screenshots/atlas.png)
+
+## Roadmap
+
+Future ideas, in no particular order:
+
+- Additional execution providers (OpenAI, Gemini, local models)
+- Voice interface
+- Web-based agent marketplace
+- Team collaboration (multi-user)
+- Cloud deployment option
+- Re-embedding of agent memory on model change
 
 ## Contributing
 
