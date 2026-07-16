@@ -93,9 +93,14 @@ end-to-end pipeline verification is still pending a live Anthropic key.
 - One command to run everything: docker compose up --build
 - ~/forge-workspace is mounted into the backend container at /root/forge-workspace,
   so files agents write to a pipeline's workspace_path are visible on the host (Finder)
+- Frontend has NO volume mounts (Session 10) — the image is rebuilt on every
+  `docker compose up --build`. To apply frontend code changes, always run
+  `docker compose up --build`; a plain `docker compose up` serves stale code
+  from the last build. Backend keeps its bind-mount + `--reload`, so backend
+  hot reload still works — this tradeoff is frontend-only.
 
 ## Docker Notes
-- Frontend uses named volumes (frontend_node_modules, frontend_next) instead of
+~~- Frontend uses named volumes (frontend_node_modules, frontend_next) instead of
   anonymous volumes — required for VirtioFS compatibility on Apple Silicon
 - Named volumes are stored inside Docker's VM, VirtioFS never touches them
 - If frontend breaks after Docker Desktop updates, run: docker compose down -v && docker compose up --build
@@ -111,7 +116,15 @@ end-to-end pipeline verification is still pending a live Anthropic key.
   after a volume reset runs a real `npm ci` (~10-15s), later restarts skip it. Do not
   replace this with a bare `[ -d node_modules/next ]` check — a container killed mid-`npm ci`
   (e.g. a crash-loop) leaves a `next/` dir without `@swc/helpers`, and that weaker check
-  treats the partial install as complete forever.
+  treats the partial install as complete forever.~~
+- Session 10: named volumes kept corrupting on this machine's Docker Desktop
+  setup even after the VirtioFS fix above. The permanent fix is removing
+  frontend volume mounts entirely — no bind mount, no named volumes, nothing
+  for VirtioFS to corrupt. Hot reload is sacrificed for stability: the
+  frontend Dockerfile does a normal `npm ci` + `COPY . .` at build time, and
+  `docker compose up --build` is required after every frontend code change.
+  Backend is unaffected (its bind-mount + `--reload` setup was never the
+  source of the VirtioFS corruption, only frontend's node_modules churn was).
 
 ## Running Locally
 
