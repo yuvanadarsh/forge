@@ -9,16 +9,23 @@ export default function ConversationMenu({
   conversationId,
   onRename,
   onDeleted,
+  onOpenChange,
 }: {
   conversationId: string;
   onRename: () => void;
   onDeleted: () => void;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const { dispatch } = useForge();
-  const [open, setOpen] = useState(false);
+  const [open, setOpenState] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+
+  function setOpen(next: boolean) {
+    setOpenState(next);
+    onOpenChange?.(next);
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +51,7 @@ export default function ConversationMenu({
   return (
     <div className="relative" ref={ref} onClick={(e) => e.stopPropagation()}>
       <button
-        onClick={() => setOpen((o) => !o)}
+        onClick={() => setOpen(!open)}
         className="w-7 h-7 rounded-lg flex items-center justify-center text-sm transition-colors duration-150"
         style={{ color: "#71717a", background: open ? "#1a1a1a" : "transparent" }}
         aria-label="Conversation options"
@@ -57,7 +64,8 @@ export default function ConversationMenu({
           style={{ background: "#161616", borderColor: "#1f1f1f" }}
         >
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setOpen(false);
               onRename();
             }}

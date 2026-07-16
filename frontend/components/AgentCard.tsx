@@ -100,12 +100,9 @@ export default function AgentCard({ agent, currentTask, onDeleted, onError }: Pr
           style={{ padding: "1px", background: getGradient(agent.avatar_color) }}
         >
           <div className="rounded-xl p-4 h-full flex flex-col gap-3" style={{ background: "#111111" }}>
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="font-semibold text-sm" style={{ color: "#f5f5f5" }}>{agent.name}</div>
-                <div className="text-xs mt-0.5" style={{ color: "#71717a" }}>{agent.role}</div>
-              </div>
-              <StatusDot status={agent.status} />
+            <div>
+              <div className="font-semibold text-sm" style={{ color: "#f5f5f5" }}>{agent.name}</div>
+              <div className="text-xs mt-0.5" style={{ color: "#71717a" }}>{agent.role}</div>
             </div>
 
             <div className="text-xs leading-relaxed line-clamp-2" style={{ color: "#71717a" }}>
@@ -123,8 +120,11 @@ export default function AgentCard({ agent, currentTask, onDeleted, onError }: Pr
               </div>
             )}
 
-            <div className="text-xs mt-auto" style={{ color: "#3f3f46" }}>
-              {agent.last_active ? `Active ${timeAgo(agent.last_active)}` : "Not active yet"}
+            <div className="flex items-center justify-between mt-auto">
+              <span className="text-xs" style={{ color: "#3f3f46" }}>
+                {agent.last_active ? `Active ${timeAgo(agent.last_active)}` : "Not active yet"}
+              </span>
+              <StatusDot status={agent.status} />
             </div>
           </div>
         </div>

@@ -35,6 +35,7 @@ export default function ChatPage() {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState("");
   const [toast, setToast] = useState<string | null>(null);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
 
   const agents = state.agents;
   const conversations = state.conversations;
@@ -126,22 +127,30 @@ export default function ChatPage() {
             : "No conversations yet — open an agent and start a general chat."}
         </div>
       ) : (
-        <div
-          className="rounded-xl border overflow-hidden"
-          style={{ borderColor: "#1f1f1f" }}
-        >
-          {rows.map(({ agent, conv, pair }, i) => (
+        <div className="rounded-xl border" style={{ borderColor: "#1f1f1f" }}>
+          {rows.map(({ agent, conv, pair }, i) => {
+            const isRenaming = renamingId === conv.id;
+            const isMenuOpen = openMenuId === conv.id;
+            return (
             <div
               key={conv.id}
               className="relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[#161616]"
               style={{
                 borderLeft: `3px solid ${pair[0]}`,
                 borderBottom: i < rows.length - 1 ? "1px solid #1a1a1a" : "none",
+                borderTopLeftRadius: i === 0 ? 12 : 0,
+                borderTopRightRadius: i === 0 ? 12 : 0,
+                borderBottomLeftRadius: i === rows.length - 1 ? 12 : 0,
+                borderBottomRightRadius: i === rows.length - 1 ? 12 : 0,
                 background: "#111111",
+                zIndex: isRenaming || isMenuOpen ? 30 : 0,
               }}
             >
               <Link
                 href={`/agents/${agent.id}/conversations/${conv.id}`}
+                onClick={(e) => {
+                  if (isRenaming) e.preventDefault();
+                }}
                 className="flex items-center gap-3 flex-1 min-w-0"
               >
                 {/* Avatar */}
@@ -212,9 +221,11 @@ export default function ChatPage() {
                   setRenamingId(conv.id);
                 }}
                 onDeleted={() => {}}
+                onOpenChange={(open) => setOpenMenuId(open ? conv.id : null)}
               />
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
