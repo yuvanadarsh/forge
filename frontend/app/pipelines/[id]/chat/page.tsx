@@ -7,7 +7,7 @@ import PipelineChatMessage, { type PipelineChatMsg } from "@/components/Pipeline
 import ToolCallCard, { summarizeToolArgs } from "@/components/ToolCallCard";
 import ApprovalGateCard from "@/components/ApprovalGateCard";
 import PipelineChatInput from "@/components/PipelineChatInput";
-import PipelineParticipants from "@/components/PipelineParticipants";
+import PipelineParticipants, { type AgentActivity } from "@/components/PipelineParticipants";
 import PipelineExecutionPlan from "@/components/PipelineExecutionPlan";
 import ErrorState from "@/components/ErrorState";
 import Toast from "@/components/Toast";
@@ -64,8 +64,46 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   const [input, setInput] = useState("");
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [agentActivity, setAgentActivity] = useState<AgentActivity>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const activityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  // Live status dots: streaming (blue) reverts to idle shortly after tokens
+  // stop; executing (green) gets a long failsafe in case no event follows.
+  const markActivity = useCallback(
+    (agentId: string | null, state: "executing" | "streaming" | null, revertMs?: number) => {
+      if (!agentId) return;
+      const timers = activityTimers.current;
+      if (timers[agentId]) {
+        clearTimeout(timers[agentId]);
+        delete timers[agentId];
+      }
+      setAgentActivity((prev) => {
+        const next = { ...prev };
+        if (state === null) delete next[agentId];
+        else next[agentId] = state;
+        return next;
+      });
+      if (state !== null && revertMs) {
+        timers[agentId] = setTimeout(() => {
+          delete timers[agentId];
+          setAgentActivity((prev) => {
+            const next = { ...prev };
+            delete next[agentId];
+            return next;
+          });
+        }, revertMs);
+      }
+    },
+    [],
+  );
+
+  const clearAllActivity = useCallback(() => {
+    for (const timer of Object.values(activityTimers.current)) clearTimeout(timer);
+    activityTimers.current = {};
+    setAgentActivity({});
+  }, []);
 
   const participants = (pipeline?.agent_sequence ?? [])
     .map((aid) => state.agents.find((a) => a.id === aid))
@@ -96,6 +134,9 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         if (!event) return;
         switch (event.type) {
           case "token":
+            // Blue pulsing + typing dots while tokens flow; revert to idle
+            // once they stop for a beat.
+            markActivity(event.agent_id, "streaming", 3000);
             setLiveItems((prev) => {
               const last = prev[prev.length - 1];
               if (last?.kind === "stream" && last.agentId === event.agent_id) {
@@ -111,6 +152,9 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             });
             break;
           case "tool_call":
+            // Green pulsing while a tool runs (60s failsafe covers the
+            // command timeout).
+            markActivity(event.agent_id, "executing", 65_000);
             setLiveItems((prev) => [
               ...prev,
               {
@@ -123,6 +167,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             ]);
             break;
           case "tool_result":
+            markActivity(event.agent_id, "executing", 3000);
             setLiveItems((prev) => {
               const idx = [...prev].reverse().findIndex((it) => it.kind === "tool" && it.result === undefined);
               if (idx === -1) return prev;
@@ -137,6 +182,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             break;
           case "status":
             setLiveStatus(event.payload.status);
+            markActivity(event.agent_id, "executing", 65_000);
             break;
           case "gate":
             setLiveStatus("paused_for_approval");
@@ -153,6 +199,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             break;
           case "complete":
             setLiveStatus("completed");
+            clearAllActivity();
             setLiveItems([{ kind: "note", id: nextLiveId(), text: "Pipeline run completed ✓", tone: "info" }]);
             socket.close();
             // The executor persisted everything — swap live view for DB truth.
@@ -163,6 +210,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             break;
           case "error":
             setLiveStatus("failed");
+            clearAllActivity();
             setLiveItems((prev) => [
               ...prev,
               { kind: "note", id: nextLiveId(), text: `Pipeline error: ${event.payload.error}`, tone: "error" },
@@ -172,7 +220,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         }
       };
     },
-    [reloadMessages],
+    [reloadMessages, markActivity, clearAllActivity],
   );
 
   useEffect(() => {
@@ -209,6 +257,8 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
       cancelled = true;
       socketRef.current?.close();
       socketRef.current = null;
+      for (const timer of Object.values(activityTimers.current)) clearTimeout(timer);
+      activityTimers.current = {};
     };
   }, [id, connectSocket, reloadMessages]);
 
@@ -569,7 +619,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
       </div>
 
       {/* Right panel — participants */}
-      <PipelineParticipants agents={participants} />
+      <PipelineParticipants agents={participants} activity={agentActivity} />
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
