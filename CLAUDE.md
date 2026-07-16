@@ -83,6 +83,16 @@ is part of Phase 3, not done yet.
 - ~/forge-workspace is mounted into the backend container at /root/forge-workspace,
   so files agents write to a pipeline's workspace_path are visible on the host (Finder)
 
+## Docker Notes
+- Frontend uses named volumes (frontend_node_modules, frontend_next) instead of
+  anonymous volumes — required for VirtioFS compatibility on Apple Silicon
+- Named volumes are stored inside Docker's VM, VirtioFS never touches them
+- If frontend breaks after Docker Desktop updates, run: docker compose down -v && docker compose up --build
+- Do NOT switch back to anonymous volumes (/app/node_modules syntax) — causes corruption on VirtioFS
+- PR #14 (running the frontend natively instead of in Docker) was closed in favor of
+  this named-volumes fix — both addressed the same VirtioFS issue, but named volumes
+  keep the two-service Docker Compose architecture intact
+
 ## Running Locally
 
 - docker compose up --build
