@@ -295,6 +295,40 @@ async def update_pipeline(
     return pipeline
 
 
+@router.patch("/{pipeline_id}/stop", response_model=PipelineOut)
+async def stop_pipeline(
+    pipeline_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> Pipeline:
+    """Force-stop a pipeline stuck in an active run — a safety valve, not for
+    normal use. Marks the current run and the pipeline itself as failed."""
+    pipeline = await _get_pipeline_or_404(pipeline_id, db)
+    if pipeline.status not in ACTIVE_RUN_STATUSES:
+        raise HTTPException(
+            status_code=409, detail=f"Pipeline is {pipeline.status}, not running"
+        )
+
+    run = (
+        await db.execute(
+            select(PipelineRun)
+            .where(
+                PipelineRun.pipeline_id == pipeline_id,
+                PipelineRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
+            .order_by(PipelineRun.started_at.desc())
+            .limit(1)
+        )
+    ).scalars().first()
+    if run is not None:
+        run.status = "failed"
+        run.error = "Manually stopped by user"
+        run.completed_at = datetime.now(timezone.utc)
+
+    pipeline.status = "failed"
+    await db.commit()
+    await db.refresh(pipeline)
+    return pipeline
+
+
 @router.get("/{pipeline_id}/runs", response_model=list[RunOut])
 async def list_runs(pipeline_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> list[PipelineRun]:
     await _get_pipeline_or_404(pipeline_id, db)

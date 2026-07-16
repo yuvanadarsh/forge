@@ -147,6 +147,8 @@ export const archivePipeline = (pipelineId: string) =>
   patch<BackendPipeline>(`/api/pipelines/${pipelineId}/archive`, {});
 export const restorePipeline = (pipelineId: string) =>
   patch<BackendPipeline>(`/api/pipelines/${pipelineId}`, { status: "pending_approval" });
+export const stopPipeline = (pipelineId: string) =>
+  patch<BackendPipeline>(`/api/pipelines/${pipelineId}/stop`, {});
 
 // ---------------------------------------------------------------- tasks
 
