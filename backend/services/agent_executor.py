@@ -169,6 +169,57 @@ async def _dispatch_create_agent(
     return json.dumps(result)
 
 
+TOOL_ARG_PERSIST_LIMIT = 500      # per-arg chars kept in persisted tool_call messages
+TOOL_RESULT_SUMMARY_CHARS = 200
+
+
+def _tool_call_content(
+    tool_name: str, args: dict, status: str, result_summary: str | None = None
+) -> str:
+    """JSON body for a role='tool_call' message. Long string args (e.g.
+    write_file content) are truncated — the card only shows a summary."""
+    slim_args = {
+        k: (v[:TOOL_ARG_PERSIST_LIMIT] + "…" if isinstance(v, str) and len(v) > TOOL_ARG_PERSIST_LIMIT else v)
+        for k, v in args.items()
+    }
+    payload: dict = {"tool_name": tool_name, "args": slim_args, "status": status}
+    if result_summary is not None:
+        payload["result_summary"] = result_summary
+    return json.dumps(payload)
+
+
+async def _persist_tool_call_start(
+    conversation_id: uuid.UUID, agent_id: uuid.UUID, tool_name: str, args: dict
+) -> uuid.UUID:
+    """Save a running tool_call message so history survives page reloads."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        message = Message(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            role="tool_call",
+            content=_tool_call_content(tool_name, args, "running"),
+        )
+        db.add(message)
+        await db.commit()
+        await db.refresh(message)
+        return message.id
+
+
+async def _persist_tool_call_end(
+    message_id: uuid.UUID, tool_name: str, args: dict, result: str
+) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        message = await db.get(Message, message_id)
+        if message is None:
+            return
+        message.content = _tool_call_content(
+            tool_name, args, "completed", result[:TOOL_RESULT_SUMMARY_CHARS]
+        )
+        await db.commit()
+
+
 class ExecutionError(Exception):
     """Agent execution failed in a way the pipeline should surface."""
 
@@ -706,6 +757,9 @@ async def execute_agent(
                 await streaming_manager.send_tool_call(
                     run_id, block.name, dict(block.input), agent_id=str(agent.id)
                 )
+                tool_msg_id = await _persist_tool_call_start(
+                    conversation_id, agent.id, block.name, dict(block.input)
+                )
                 try:
                     result_str = await _execute_tool(
                         block.name, dict(block.input),
@@ -720,6 +774,9 @@ async def execute_agent(
                     is_error = False
                 except ToolError as exc:
                     result_str, is_error = f"Error: {exc}", True
+                await _persist_tool_call_end(
+                    tool_msg_id, block.name, dict(block.input), result_str
+                )
                 await streaming_manager.send_tool_result(
                     run_id, result_str[:2000], agent_id=str(agent.id)
                 )

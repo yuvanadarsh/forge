@@ -123,7 +123,7 @@ CREATE TABLE messages (
     conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
     agent_id        UUID REFERENCES agents(id) ON DELETE SET NULL,  -- NULL for user messages
     role            TEXT NOT NULL
-                    CHECK (role IN ('user', 'assistant', 'system', 'tool', 'approval_gate')),
+                    CHECK (role IN ('user', 'assistant', 'system', 'tool', 'tool_call', 'approval_gate')),
     content         TEXT NOT NULL DEFAULT '',
     sender_agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,  -- agent-to-agent relay source
     gate_status     TEXT

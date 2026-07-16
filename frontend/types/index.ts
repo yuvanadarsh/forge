@@ -205,7 +205,7 @@ export interface BackendMessage {
   id: string;
   conversation_id: string;
   agent_id: string | null;
-  role: "user" | "assistant" | "system" | "tool" | "approval_gate";
+  role: "user" | "assistant" | "system" | "tool" | "tool_call" | "approval_gate";
   content: string;
   sender_agent_id: string | null;
   gate_status: "pending" | "approved" | "changes_requested" | null;

@@ -4,6 +4,7 @@ import { use, useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import PipelineChatMessage, { type PipelineChatMsg } from "@/components/PipelineChatMessage";
+import ToolCallCard, { summarizeToolArgs } from "@/components/ToolCallCard";
 import ApprovalGateCard from "@/components/ApprovalGateCard";
 import PipelineChatInput from "@/components/PipelineChatInput";
 import PipelineParticipants from "@/components/PipelineParticipants";
@@ -323,25 +324,71 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             ? undefined
             : "Start the pipeline to send messages";
 
-  const historyMsgs: PipelineChatMsg[] = messages
-    .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "approval_gate")
+  // Persisted tool_call messages carry a JSON body written by the executor.
+  const parseToolCall = (m: BackendMessage) => {
+    try {
+      const data = JSON.parse(m.content) as {
+        tool_name?: string;
+        args?: Record<string, unknown>;
+        status?: string;
+        result_summary?: string;
+      };
+      return {
+        tool: data.tool_name ?? "tool",
+        argSummary: summarizeToolArgs(data.args ?? {}),
+        resultSummary: data.result_summary,
+        running: data.status === "running",
+      };
+    } catch {
+      return { tool: "tool", argSummary: m.content.slice(0, 80), resultSummary: undefined, running: false };
+    }
+  };
+
+  type HistoryItem =
+    | { kind: "chat"; msg: PipelineChatMsg & { gateStatus?: string | null } }
+    | {
+        kind: "tool_call";
+        id: string;
+        agentName: string;
+        tool: string;
+        argSummary: string;
+        resultSummary?: string;
+        running: boolean;
+      };
+
+  const historyItems: HistoryItem[] = messages
+    .filter(
+      (m) =>
+        m.role === "user" || m.role === "assistant" || m.role === "approval_gate" || m.role === "tool_call",
+    )
     .map((m) => {
       const agent = agentById(m.agent_id);
+      if (m.role === "tool_call") {
+        return {
+          kind: "tool_call" as const,
+          id: m.id,
+          agentName: agent?.name ?? "Agent",
+          ...parseToolCall(m),
+        };
+      }
       const relayTarget = m.sender_agent_id ? agentById(m.sender_agent_id) : undefined;
       return {
-        id: m.id,
-        role: m.role === "user" ? ("user" as const) : ("assistant" as const),
-        content: m.content,
-        agentName: agent?.name,
-        agentColor: agent?.avatar_color,
-        sender_agent_id: m.sender_agent_id ?? undefined,
-        relay_to_agent_name: relayTarget && relayTarget.id !== agent?.id ? relayTarget.name : undefined,
-        created_at: m.created_at,
-        type: m.role === "approval_gate" ? ("approval_gate" as const) : ("message" as const),
-        approvalSummary: m.content,
-        approvalWhatNext: "Approve to resume the pipeline from this gate.",
-        gateStatus: m.gate_status,
-      } as PipelineChatMsg & { gateStatus?: string | null };
+        kind: "chat" as const,
+        msg: {
+          id: m.id,
+          role: m.role === "user" ? ("user" as const) : ("assistant" as const),
+          content: m.content,
+          agentName: agent?.name,
+          agentColor: agent?.avatar_color,
+          sender_agent_id: m.sender_agent_id ?? undefined,
+          relay_to_agent_name: relayTarget && relayTarget.id !== agent?.id ? relayTarget.name : undefined,
+          created_at: m.created_at,
+          type: m.role === "approval_gate" ? ("approval_gate" as const) : ("message" as const),
+          approvalSummary: m.content,
+          approvalWhatNext: "Approve to resume the pipeline from this gate.",
+          gateStatus: m.gate_status,
+        } as PipelineChatMsg & { gateStatus?: string | null },
+      };
     });
 
   return (
@@ -398,31 +445,40 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
         {/* Messages */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-4">
-          {historyMsgs.length === 0 && liveItems.length === 0 && (
+          {historyItems.length === 0 && liveItems.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full" style={{ color: "#3f3f46" }}>
               <div className="text-4xl mb-3">⚙️</div>
               <p className="text-sm">No activity yet. Start the pipeline to watch agents work.</p>
             </div>
           )}
 
-          {historyMsgs.map((msg) =>
-            msg.type === "approval_gate" ? (
+          {historyItems.map((item) => {
+            if (item.kind === "tool_call") {
+              return (
+                <ToolCallCard
+                  key={item.id}
+                  agentName={item.agentName}
+                  tool={item.tool}
+                  argSummary={item.argSummary}
+                  resultSummary={item.resultSummary}
+                  running={item.running}
+                />
+              );
+            }
+            const msg = item.msg;
+            return msg.type === "approval_gate" ? (
               <ApprovalGateCard
                 key={msg.id}
                 summary={msg.approvalSummary ?? ""}
                 whatNext={msg.approvalWhatNext ?? ""}
-                status={
-                  (msg as PipelineChatMsg & { gateStatus?: string | null }).gateStatus === "approved"
-                    ? "approved"
-                    : "pending"
-                }
+                status={msg.gateStatus === "approved" ? "approved" : "pending"}
                 onApprove={handleApproveGate}
                 onSendFeedback={(feedback) => void sendUserMessage(feedback)}
               />
             ) : (
               <PipelineChatMessage key={msg.id} msg={msg} participants={participants} />
-            ),
-          )}
+            );
+          })}
 
           {/* Live socket items */}
           {liveItems.map((item) => {
@@ -445,29 +501,15 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             }
             if (item.kind === "tool") {
               const agent = agentById(item.agentId);
-              const argSummary =
-                typeof item.args.path === "string"
-                  ? item.args.path
-                  : typeof item.args.command === "string"
-                    ? item.args.command
-                    : typeof item.args.query === "string"
-                      ? item.args.query
-                      : "";
               return (
-                <div
+                <ToolCallCard
                   key={item.id}
-                  className="rounded-xl border px-4 py-2.5 text-xs font-mono"
-                  style={{ background: "#141414", borderColor: "#1f1f1f", color: "#71717a" }}
-                >
-                  🔧 {agent?.name ?? "Agent"} is calling{" "}
-                  <span style={{ color: "#f59e0b" }}>{item.tool}</span>
-                  {argSummary && <span style={{ color: "#a1a1aa" }}> on {argSummary}</span>}
-                  {item.result !== undefined && (
-                    <div className="mt-1.5 truncate" style={{ color: "#52525b" }}>
-                      ↳ {item.result.slice(0, 200)}
-                    </div>
-                  )}
-                </div>
+                  agentName={agent?.name ?? "Agent"}
+                  tool={item.tool}
+                  argSummary={summarizeToolArgs(item.args)}
+                  resultSummary={item.result}
+                  running={item.result === undefined}
+                />
               );
             }
             if (item.kind === "gate") {
