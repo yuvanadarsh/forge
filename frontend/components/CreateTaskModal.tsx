@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createTask } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendTask, Task } from "@/types";
@@ -22,6 +22,14 @@ interface Props {
 }
 
 export default function CreateTaskModal({ onClose, onCreate, onError }: Props) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   const { state } = useForge();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");

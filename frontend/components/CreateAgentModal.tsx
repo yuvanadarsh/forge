@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createAgent } from "@/lib/api";
 import type { BackendAgent } from "@/types";
 
@@ -93,6 +93,14 @@ interface Props {
 }
 
 export default function CreateAgentModal({ onClose, onCreate, onError }: Props) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   const [preset, setPreset] = useState("CEO");
   const [role, setRole] = useState(ROLE_PRESETS.CEO.role);
   const [specialty, setSpecialty] = useState(ROLE_PRESETS.CEO.specialty);

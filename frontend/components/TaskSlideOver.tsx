@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { listConversations } from "@/lib/api";
 import type { BackendAgent, BackendTask, Task } from "@/types";
@@ -30,6 +30,14 @@ interface Props {
 }
 
 export default function TaskSlideOver({ task, agent, onClose }: Props) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   const p = PRIORITY_STYLES[task.priority];
   const router = useRouter();
   const [checkingConvo, setCheckingConvo] = useState(false);

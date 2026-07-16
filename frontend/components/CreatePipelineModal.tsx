@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { createPipeline } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendPipeline } from "@/types";
@@ -14,6 +14,14 @@ interface Props {
 }
 
 export default function CreatePipelineModal({ onClose, onCreate, onError }: Props) {
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
   const { state } = useForge();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
