@@ -15,6 +15,7 @@ import {
   deletePipeline,
   getPipeline,
   listAgents,
+  restorePipeline,
 } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendAgent, BackendPipeline } from "@/types";
@@ -59,6 +60,7 @@ interface PipelineCardProps {
   onApprove: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  onRestore: () => void;
   onToast: (message: string) => void;
 }
 
@@ -72,6 +74,7 @@ function PipelineCard({
   onApprove,
   onArchive,
   onDelete,
+  onRestore,
   onToast,
 }: PipelineCardProps) {
   const s = STATUS_STYLES[pipeline.status] ?? STATUS_STYLES.completed;
@@ -193,7 +196,18 @@ function PipelineCard({
                 >
                   Open Pipeline Chat
                 </Link>
-                {pipeline.status !== "archived" && (
+                {pipeline.status === "archived" ? (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onRestore();
+                    }}
+                    className={`${menuItem} hover:bg-[#1f1f1f]`}
+                    style={{ color: "#f5f5f5" }}
+                  >
+                    Restore
+                  </button>
+                ) : (
                   <button
                     disabled={isActive}
                     title={isActive ? blockedTitle : undefined}
@@ -393,6 +407,16 @@ export default function PipelinesPage() {
     }
   }
 
+  async function handleRestore(pipeline: BackendPipeline) {
+    try {
+      const updated = await restorePipeline(pipeline.id);
+      dispatch({ type: "UPDATE_PIPELINE", pipeline: updated });
+      setToast(`Pipeline "${pipeline.title}" restored`);
+    } catch (err) {
+      setToast(`Could not restore: ${err instanceof Error ? err.message : "unknown error"}`);
+    }
+  }
+
   async function handleDelete(pipeline: BackendPipeline) {
     try {
       await deletePipeline(pipeline.id);
@@ -416,6 +440,7 @@ export default function PipelinesPage() {
       onApprove={() => handleApprove(pipeline)}
       onArchive={() => handleArchive(pipeline)}
       onDelete={() => handleDelete(pipeline)}
+      onRestore={() => handleRestore(pipeline)}
       onToast={setToast}
     />
   );

@@ -77,6 +77,10 @@ class PipelineDetailOut(PipelineOut):
     current_run: RunOut | None = None
 
 
+class PipelineUpdate(BaseModel):
+    status: str | None = None
+
+
 def _slug(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "pipeline"
 
@@ -261,6 +265,31 @@ async def archive_pipeline(
         )
     pipeline.status = "archived"
     pipeline.archived_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(pipeline)
+    return pipeline
+
+
+@router.patch("/{pipeline_id}", response_model=PipelineOut)
+async def update_pipeline(
+    pipeline_id: uuid.UUID, body: PipelineUpdate, db: AsyncSession = Depends(get_db)
+) -> Pipeline:
+    """Generic status transitions. Today only used to restore an archived
+    pipeline back to pending_approval."""
+    pipeline = await _get_pipeline_or_404(pipeline_id, db)
+    if body.status is None:
+        return pipeline
+    if body.status == "pending_approval":
+        if pipeline.status != "archived":
+            raise HTTPException(
+                status_code=409, detail="Only archived pipelines can be restored"
+            )
+        pipeline.status = "pending_approval"
+        pipeline.archived_at = None
+    else:
+        raise HTTPException(
+            status_code=400, detail=f"Unsupported status transition to {body.status!r}"
+        )
     await db.commit()
     await db.refresh(pipeline)
     return pipeline
