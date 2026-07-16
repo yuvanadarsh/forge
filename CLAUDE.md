@@ -92,6 +92,15 @@ is part of Phase 3, not done yet.
 - PR #14 (running the frontend natively instead of in Docker) was closed in favor of
   this named-volumes fix — both addressed the same VirtioFS issue, but named volumes
   keep the two-service Docker Compose architecture intact
+- A fresh named volume is NOT reliably pre-populated from the image's built node_modules
+  (Docker's image→empty-volume copy did not fire consistently under this bind-mount +
+  child-volume layout during testing on this machine, Docker Desktop 29.3.1/overlayfs).
+  The frontend command therefore bootstraps itself: `[ -f node_modules/.install-complete ]
+  || (npm ci && touch node_modules/.install-complete)` before `npm run dev` — first boot
+  after a volume reset runs a real `npm ci` (~10-15s), later restarts skip it. Do not
+  replace this with a bare `[ -d node_modules/next ]` check — a container killed mid-`npm ci`
+  (e.g. a crash-loop) leaves a `next/` dir without `@swc/helpers`, and that weaker check
+  treats the partial install as complete forever.
 
 ## Running Locally
 
