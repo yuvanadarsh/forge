@@ -5,6 +5,10 @@ import { createPipeline } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendPipeline } from "@/types";
 
+function slugify(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
 interface Props {
   onClose: () => void;
   /** Called with the persisted pipeline after a successful POST. */
@@ -28,7 +32,19 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
   const [workspaceMode, setWorkspaceMode] = useState<"new" | "existing">("new");
   const [existingPath, setExistingPath] = useState("");
+  const [folderName, setFolderName] = useState("");
+  const [folderNameEdited, setFolderNameEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  function handleTitleChange(value: string) {
+    setTitle(value);
+    if (!folderNameEdited) setFolderName(slugify(value));
+  }
+
+  function handleFolderNameChange(value: string) {
+    setFolderNameEdited(true);
+    setFolderName(value);
+  }
 
   const agents = state.agents;
   // Auto-suggest defaults on when a CEO-role agent exists to do the choosing.
@@ -45,7 +61,9 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
   const canSubmit =
     title.trim().length > 0 &&
     (autoSuggest || selectedAgents.length > 0) &&
-    (workspaceMode === "new" || existingPath.trim().length > 0);
+    (workspaceMode === "existing"
+      ? existingPath.trim().length > 0
+      : folderName.trim().length > 0);
 
   async function handleCreate() {
     if (submitting || !canSubmit) return;
@@ -58,6 +76,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
         auto_suggest: autoSuggest,
         workspace_path:
           workspaceMode === "existing" && existingPath.trim() ? existingPath.trim() : undefined,
+        folder_name: workspaceMode === "new" ? folderName.trim() : undefined,
       });
       onCreate(pipeline);
     } catch (err) {
@@ -97,7 +116,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
             <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>Title</label>
             <input
               value={title}
-              onChange={(e) => setTitle(e.target.value)}
+              onChange={(e) => handleTitleChange(e.target.value)}
               placeholder="e.g. Ship the billing dashboard"
               className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
               style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
@@ -229,9 +248,23 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
               </button>
             </div>
             {workspaceMode === "new" ? (
-              <p className="text-xs" style={{ color: "#3f3f46" }}>
-                ~/forge-workspace/{title.trim() ? title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "pipeline" : "[pipeline-title]"}/
-              </p>
+              <div>
+                <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
+                  Workspace folder name
+                </label>
+                <input
+                  value={folderName}
+                  onChange={(e) => handleFolderNameChange(e.target.value)}
+                  placeholder="pipeline-folder-name"
+                  className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
+                  style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
+                  onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
+                  onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+                />
+                <p className="text-xs mt-1.5" style={{ color: "#3f3f46" }}>
+                  ~/forge-workspace/{folderName.trim() || "[folder-name]"}/
+                </p>
+              </div>
             ) : (
               <input
                 value={existingPath}

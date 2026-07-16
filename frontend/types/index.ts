@@ -155,6 +155,7 @@ export interface PipelineCreatePayload {
   agent_sequence: string[];
   plan_md?: string;
   workspace_path?: string;
+  folder_name?: string;
   created_by?: string;
   auto_suggest?: boolean;
 }
