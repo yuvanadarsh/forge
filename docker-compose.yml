@@ -30,9 +30,13 @@ services:
       - CHOKIDAR_USEPOLLING=true
     volumes:
       - ./frontend:/app
-      - /app/node_modules
-      - /app/.next
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
     command: npm run dev -- --webpack
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  frontend_node_modules:
+  frontend_next:
