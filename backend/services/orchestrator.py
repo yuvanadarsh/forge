@@ -128,6 +128,7 @@ def _make_agent_node(
             run.current_agent_index = index
             await db.commit()
 
+        logger.info("Executing agent node: %s (index %d, run %s)", agent.name, index, pipeline_run_id)
         await streaming_manager.send_status(str(pipeline_run_id), f"running:{agent.name}")
         output = await execute_agent(
             agent=agent,
@@ -246,11 +247,25 @@ async def run_pipeline(pipeline_run_id: uuid.UUID, db: AsyncSession) -> None:
     pipeline = await db.get(Pipeline, run.pipeline_id)
     if pipeline is None:
         raise RuntimeError(f"Pipeline {run.pipeline_id} not found")
+    logger.info(
+        "Starting pipeline run %s for pipeline %s (%d agents)",
+        run.id, pipeline.id, len(pipeline.agent_sequence),
+    )
     if not pipeline.agent_sequence:
-        run.status = "completed"
+        error = "Pipeline has no agents assigned — cannot run an empty agent sequence."
+        logger.error("Pipeline run %s failed: %s", run.id, error)
+        run.status = "failed"
+        run.error = error
         run.completed_at = datetime.now(timezone.utc)
-        pipeline.status = "completed"
+        pipeline.status = "failed"
         await db.commit()
+        await _notify(
+            db, "pipeline_failed",
+            f"Pipeline failed: {pipeline.title}",
+            error,
+            f"/pipelines/{pipeline.id}/chat",
+        )
+        await streaming_manager.send_error(str(run.id), error)
         return
 
     conversation = await _get_or_create_conversation(db, pipeline)
