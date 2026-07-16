@@ -127,12 +127,9 @@ export default function CreateAgentModal({ onClose, onCreate, onError }: Props) 
   const availableGroups = PROVIDER_MODELS.filter((g) =>
     apiKeys?.some((k) => k.provider.toLowerCase() === g.provider),
   );
-
-  useEffect(() => {
-    if (!model && availableGroups.length > 0) {
-      setModel(availableGroups[0].models[0]);
-    }
-  }, [availableGroups, model]);
+  // Default to the first model of the first available provider until the
+  // user picks one explicitly.
+  const selectedModel = model || availableGroups[0]?.models[0] || "";
 
   function handlePresetChange(key: string) {
     setPreset(key);
@@ -152,7 +149,7 @@ export default function CreateAgentModal({ onClose, onCreate, onError }: Props) 
         specialty,
         avatar_color: color,
         system_prompt: systemPrompt,
-        model: model || undefined,
+        model: selectedModel || undefined,
       });
       onCreate(agent);
     } catch (err) {
@@ -298,7 +295,7 @@ export default function CreateAgentModal({ onClose, onCreate, onError }: Props) 
               </>
             ) : (
               <select
-                value={model}
+                value={selectedModel}
                 onChange={(e) => setModel(e.target.value)}
                 disabled={apiKeys === null}
                 className={`${inputClass} cursor-pointer`}
