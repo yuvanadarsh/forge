@@ -148,6 +148,9 @@ export default function ChatPage() {
             >
               <Link
                 href={`/agents/${agent.id}/conversations/${conv.id}`}
+                onClick={(e) => {
+                  if (isRenaming) e.preventDefault();
+                }}
                 className="flex items-center gap-3 flex-1 min-w-0"
               >
                 {/* Avatar */}

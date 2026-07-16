@@ -64,7 +64,8 @@ export default function ConversationMenu({
           style={{ background: "#161616", borderColor: "#1f1f1f" }}
         >
           <button
-            onClick={() => {
+            onClick={(e) => {
+              e.stopPropagation();
               setOpen(false);
               onRename();
             }}
