@@ -70,6 +70,14 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
   const [creatingChat, setCreatingChat] = useState(false);
 
   useEffect(() => {
+    const pending = sessionStorage.getItem("forge:toast");
+    if (pending) {
+      setToast(pending);
+      sessionStorage.removeItem("forge:toast");
+    }
+  }, []);
+
+  useEffect(() => {
     let cancelled = false;
     setFetchState("loading");
     getAgent(id)

@@ -260,7 +260,10 @@ export default function ConversationPage({
             <ConversationMenu
               conversationId={conversation.id}
               onRename={startRename}
-              onDeleted={() => router.push(`/agents/${id}`)}
+              onDeleted={() => {
+                sessionStorage.setItem("forge:toast", "Conversation deleted");
+                router.push(`/agents/${id}`);
+              }}
             />
           )}
         </div>
