@@ -49,6 +49,11 @@ PHASE 3 — Real agent execution and pipeline testing: run pipelines end-to-end 
 a real Anthropic key (streamed tokens, live approval gates), wire the task "Run →"
 button to agent execution, add pipeline creation UI.
 
+Note (Session 8): tasks are single-agent execution units (TaskCard's "Run →" is
+still unwired — "Coming soon"); pipelines are the multi-agent, LangGraph-orchestrated
+flow with approval gates. Wiring the task Run button to real single-agent execution
+is part of Phase 3, not done yet.
+
 ## Tech Stack — Frontend
 
 - Next.js 16.2.9 (App Router), TypeScript (strict, never use `any`), Tailwind CSS
@@ -155,6 +160,13 @@ button to agent execution, add pipeline creation UI.
 - Text primary: #f5f5f5, Text muted: #71717a
 - Border radius: 12px on cards, 8px on inputs/buttons
 - Transitions: 150ms ease on all hover states
+- Z-index convention (Session 8): toast notifications z-50, modals/overlays
+  z-40, dropdown menus z-30, slide-over panels z-20, sidebar z-10, pipeline
+  execution plan panel z-10. Sidebar needs an explicit z-index (not just
+  `fixed`) because `position: fixed` always creates its own stacking
+  context — without one it loses paint-order ties to later, non-positioned
+  main content, which is what buried the NotificationBell dropdown under
+  the execution plan panel before this was fixed.
 
 ## Agent Ring Colors
 
@@ -403,6 +415,40 @@ backend/
   be siblings, not nested, or the menu's stopPropagation still lets the anchor's
   native click through) — shipped as one commit rather than two, since splitting
   by feature would leave an artificial half-wired intermediate state
+
+### Session 8 (2026-07-16) — Z-index audit, escape key, delete agent/task, model dropdown
+
+- Z-index convention established (see Design System section above); AgentCard's
+  and TaskCard's overlay menus follow the same "sibling to the Link/onClick
+  target, not nested inside it" pattern documented in Session 7
+- Escape-to-close added to every modal/panel via a per-component
+  `useEffect` + `document.addEventListener("keydown", ...)`; ConfirmDialog
+  nested inside another modal will close both on Escape (each has its own
+  listener) — acceptable since Escape closing "too much" is safer than not
+  closing enough
+- Delete agent: backend already enforced the active-pipeline-run check
+  (409 with a detail string) — frontend just needed to catch status 409
+  specifically and show "Cannot delete agent with active pipeline runs"
+  instead of the raw backend message
+- Delete task: DELETE /api/tasks/{id} and the frontend deleteTask() call
+  already existed; only DELETE_TASK was missing from the store's action
+  union/reducer
+- Auto-delete empty conversations (POST /api/conversations): after creating
+  the new conversation, delete other conversations for the same agent_id
+  where task_id IS NULL and there's no matching row in messages (outer join
+  filtered to Message.id IS NULL) — applies to general chats only, task
+  conversations are expected to sit empty until used
+- Delete conversation success toast: the conversation page unmounts on
+  navigation before a same-page toast can render, so the message is handed
+  off via `sessionStorage["forge:toast"]` and read once on the agent page's
+  mount — first cross-page toast handoff in the codebase; reuse this pattern
+  instead of inventing a new one if another flow needs a post-navigation toast
+- Model dropdown (Create Agent): fetches GET /api/settings/api-keys and
+  groups a hardcoded per-provider model list by which providers have a key
+  configured; default selection is a derived value computed in render
+  (`model || availableGroups[0]?.models[0]`), not a `useEffect` that calls
+  `setState` — the project's eslint config (react-hooks/set-state-in-effect)
+  flags that pattern as an error
 
 ## CLAUDE.md Rules
 
