@@ -78,7 +78,7 @@ export default function PipelineChatInput({ value, onChange, onSend, participant
       {/* @mention picker */}
       {filtered.length > 0 && (
         <div
-          className="absolute bottom-full left-6 mb-2 rounded-xl border overflow-hidden z-20"
+          className="absolute bottom-full left-6 mb-2 rounded-xl border overflow-hidden z-30"
           style={{ background: "#161616", borderColor: "#2a2a2a", minWidth: "220px", boxShadow: "0 8px 24px rgba(0,0,0,0.5)" }}
         >
           {filtered.map((agent, idx) => (

@@ -124,7 +124,7 @@ export default function ChatPage() {
           {rows.map(({ agent, conv, pair }, i) => (
             <div
               key={conv.id}
-              className="flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[#161616]"
+              className="relative flex items-center gap-3 px-4 py-3 transition-colors duration-150 hover:bg-[#161616]"
               style={{
                 borderLeft: `3px solid ${pair[0]}`,
                 borderBottom: i < rows.length - 1 ? "1px solid #1a1a1a" : "none",

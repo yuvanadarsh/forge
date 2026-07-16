@@ -312,7 +312,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
             {taskPickerOpen && (
               <div
-                className="absolute right-0 mt-2 w-64 rounded-xl border shadow-2xl z-10 p-3"
+                className="absolute right-0 mt-2 w-64 rounded-xl border shadow-2xl z-30 p-3"
                 style={{ background: "#161616", borderColor: "#1f1f1f" }}
               >
                 <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>

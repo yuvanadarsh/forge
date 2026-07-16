@@ -66,7 +66,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="fixed left-0 top-0 h-screen w-[220px] flex flex-col border-r" style={{ background: "#0d0d0d", borderColor: "#1f1f1f" }}>
+    <aside className="fixed left-0 top-0 h-screen w-[220px] flex flex-col border-r z-10" style={{ background: "#0d0d0d", borderColor: "#1f1f1f" }}>
       {/* Logo */}
       <div className="flex items-center gap-3 px-5 py-5 border-b" style={{ borderColor: "#1f1f1f" }}>
         <div className="flex items-center justify-center w-8 h-8 rounded-lg" style={{ background: "#f59e0b" }}>

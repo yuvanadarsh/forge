@@ -58,13 +58,13 @@ export default function TaskSlideOver({ task, agent, onClose }: Props) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-40"
+        className="fixed inset-0 z-20"
         style={{ background: "rgba(0,0,0,0.4)" }}
         onClick={onClose}
       />
       {/* Panel */}
       <div
-        className="fixed top-0 right-0 bottom-0 z-50 w-[400px] flex flex-col border-l shadow-2xl slide-over"
+        className="fixed top-0 right-0 bottom-0 z-20 w-[400px] flex flex-col border-l shadow-2xl slide-over"
         style={{ background: "#111111", borderColor: "#1f1f1f" }}
       >
         {/* Header */}

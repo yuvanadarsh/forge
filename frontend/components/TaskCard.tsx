@@ -80,7 +80,7 @@ export default function TaskCard({ task, agent, onRun, onClick, onMove }: Props)
               </button>
               {showMoveMenu && (
                 <div
-                  className="absolute right-0 bottom-full mb-1 z-20 rounded-xl border shadow-xl overflow-hidden"
+                  className="absolute right-0 bottom-full mb-1 z-30 rounded-xl border shadow-xl overflow-hidden"
                   style={{ background: "#1a1a1a", borderColor: "#2a2a2a", minWidth: "130px" }}
                   onClick={(e) => e.stopPropagation()}
                 >
