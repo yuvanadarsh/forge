@@ -44,6 +44,7 @@ class Agent(Base):
     model: Mapped[str] = mapped_column(Text, server_default=text("'claude-sonnet-4-5'"))
     system_prompt: Mapped[str] = mapped_column(Text, server_default=text("''"))
     status: Mapped[str] = mapped_column(Text, server_default=text("'idle'"))
+    is_eternal: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     last_active: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
@@ -76,6 +77,9 @@ class Settings(Base):
     embedding_model: Mapped[str] = mapped_column(Text, server_default=text("'voyage-3'"))
     workspace_root: Mapped[str] = mapped_column(Text, server_default=text("'~/forge-workspace'"))
     global_rules: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    max_run_cost: Mapped[Decimal] = mapped_column(Numeric(8, 2), server_default=text("5.00"))
+    max_agent_cost: Mapped[Decimal] = mapped_column(Numeric(8, 2), server_default=text("2.00"))
+    max_daily_cost: Mapped[Decimal] = mapped_column(Numeric(8, 2), server_default=text("20.00"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 
@@ -95,8 +99,10 @@ class Pipeline(Base):
         ForeignKey("agents.id", ondelete="SET NULL")
     )
     plan_md: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    suggestion_reasoning: Mapped[str | None] = mapped_column(Text)
     workspace_path: Mapped[str] = mapped_column(Text)
     approved_at: Mapped[datetime | None] = mapped_column()
+    archived_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 

@@ -34,6 +34,9 @@ class SettingsOut(BaseModel):
     embedding_model: str
     workspace_root: str
     global_rules: str
+    max_run_cost: float
+    max_agent_cost: float
+    max_daily_cost: float
     updated_at: datetime
 
 
@@ -46,6 +49,9 @@ class SettingsUpdate(BaseModel):
     embedding_model: str | None = None
     workspace_root: str | None = None
     global_rules: str | None = None
+    max_run_cost: float | None = Field(default=None, ge=0)
+    max_agent_cost: float | None = Field(default=None, ge=0)
+    max_daily_cost: float | None = Field(default=None, ge=0)
 
 
 class ApiKeyCreate(BaseModel):

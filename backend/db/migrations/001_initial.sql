@@ -15,6 +15,7 @@ CREATE TABLE agents (
     system_prompt TEXT NOT NULL DEFAULT '',
     status        TEXT NOT NULL DEFAULT 'idle'
                   CHECK (status IN ('idle', 'working', 'error')),
+    is_eternal    BOOLEAN NOT NULL DEFAULT false,  -- ships with Forge, cannot be deleted (Atlas)
     last_active   TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -46,6 +47,10 @@ CREATE TABLE settings (
     embedding_model    TEXT NOT NULL DEFAULT 'voyage-3',
     workspace_root     TEXT NOT NULL DEFAULT '~/forge-workspace',
     global_rules       TEXT NOT NULL DEFAULT '',   -- injected into every agent system prompt
+    -- Cost protection: the executor stops agents once any ceiling is crossed
+    max_run_cost       NUMERIC(8,2) NOT NULL DEFAULT 5.00,   -- max $ per pipeline run
+    max_agent_cost     NUMERIC(8,2) NOT NULL DEFAULT 2.00,   -- max $ per agent per run
+    max_daily_cost     NUMERIC(8,2) NOT NULL DEFAULT 20.00,  -- max $ across all runs per day
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -56,12 +61,14 @@ CREATE TABLE pipelines (
     description    TEXT NOT NULL DEFAULT '',
     status         TEXT NOT NULL DEFAULT 'pending_approval'
                    CHECK (status IN ('pending_approval', 'approved', 'running',
-                                     'paused_for_approval', 'completed', 'failed')),
+                                     'paused_for_approval', 'completed', 'failed', 'archived')),
     agent_sequence UUID[] NOT NULL DEFAULT '{}',   -- ordered agent ids
     created_by     UUID REFERENCES agents(id) ON DELETE SET NULL,  -- NULL = created by user
     plan_md        TEXT NOT NULL DEFAULT '',
+    suggestion_reasoning TEXT,           -- CEO's reasoning when auto-suggested, else NULL
     workspace_path TEXT NOT NULL,
     approved_at    TIMESTAMPTZ,
+    archived_at    TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -146,7 +153,7 @@ CREATE TABLE file_access_log (
     pipeline_run_id UUID REFERENCES pipeline_runs(id) ON DELETE CASCADE,
     agent_id        UUID REFERENCES agents(id) ON DELETE SET NULL,
     path            TEXT NOT NULL,
-    operation       TEXT NOT NULL CHECK (operation IN ('read', 'write', 'search')),
+    operation       TEXT NOT NULL CHECK (operation IN ('read', 'write', 'search', 'agent_created')),
     bytes           INTEGER,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );

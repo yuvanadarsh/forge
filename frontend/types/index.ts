@@ -7,6 +7,8 @@ export interface Agent {
   model: string;
   system_prompt: string;
   status: "idle" | "working" | "error";
+  /** Eternal agents ship with Forge and cannot be deleted (e.g. Atlas). */
+  is_eternal?: boolean;
   last_active: string;
   tokens_used: number;
   cost_usd: number;
@@ -74,6 +76,7 @@ export interface Provider {
 
 export interface BackendAgent extends Omit<Agent, "last_active"> {
   last_active: string | null;
+  is_eternal: boolean;
 }
 
 export interface AgentUsageSummary {
@@ -110,12 +113,16 @@ export interface BackendPipeline {
     | "running"
     | "paused_for_approval"
     | "completed"
-    | "failed";
+    | "failed"
+    | "archived";
   agent_sequence: string[];
   created_by: string | null;
   plan_md: string;
+  /** CEO's reasoning when the pipeline was auto-suggested, else null. */
+  suggestion_reasoning: string | null;
   workspace_path: string;
   approved_at: string | null;
+  archived_at: string | null;
   created_at: string;
 }
 
@@ -144,10 +151,12 @@ export interface BackendPipelineDetail extends BackendPipeline {
 export interface PipelineCreatePayload {
   title: string;
   description?: string;
+  /** May be empty only with auto_suggest — the CEO fills the sequence. */
   agent_sequence: string[];
   plan_md?: string;
   workspace_path?: string;
   created_by?: string;
+  auto_suggest?: boolean;
 }
 
 export interface BackendTask extends Omit<Task, "assigned_to"> {
@@ -172,6 +181,13 @@ export interface TaskListFilters {
   status?: Task["status"];
   agent_id?: string;
   pipeline_id?: string;
+}
+
+/** POST /api/tasks/{id}/run — the run continues in the background. */
+export interface TaskRunResult {
+  conversation_id: string;
+  task_id: string;
+  status: "running";
 }
 
 export interface BackendConversation extends Omit<Conversation, "agent_id"> {
@@ -232,6 +248,10 @@ export interface ForgeSettings {
   embedding_model: string;
   workspace_root: string;
   global_rules: string;
+  /** Cost protection: agents stop automatically once a ceiling is crossed. */
+  max_run_cost: number;
+  max_agent_cost: number;
+  max_daily_cost: number;
   updated_at: string;
 }
 

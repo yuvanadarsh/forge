@@ -45,14 +45,25 @@ global store (lib/store.tsx), WebSocket pipeline chat, real key vault + security
 settings UI, analytics endpoints, single-agent chat replies (chat_reply), loading/
 error/empty states. Mock data files kept as reference; nothing imports them.
 
-PHASE 3 — Real agent execution and pipeline testing: run pipelines end-to-end with
+~~PHASE 3 — Real agent execution and pipeline testing: run pipelines end-to-end with
 a real Anthropic key (streamed tokens, live approval gates), wire the task "Run →"
-button to agent execution, add pipeline creation UI.
+button to agent execution, add pipeline creation UI.~~
 
-Note (Session 8): tasks are single-agent execution units (TaskCard's "Run →" is
+~~Note (Session 8): tasks are single-agent execution units (TaskCard's "Run →" is
 still unwired — "Coming soon"); pipelines are the multi-agent, LangGraph-orchestrated
 flow with approval gates. Wiring the task Run button to real single-agent execution
-is part of Phase 3, not done yet.
+is part of Phase 3, not done yet.~~
+
+PHASE 3 COMPLETE (Session 9, 2026-07-16): Atlas eternal agent with the
+create_agent tool, task "Run →" wired to real single-agent execution, CEO
+execution-plan generation on pipeline creation, auto-pipeline suggestion
+(CEO picks the team, Atlas fills gaps), pipeline archive/delete, onboarding
+banner, cost protection ceilings, and open source docs (README rewrite,
+CONTRIBUTING.md, MIT LICENSE).
+
+SHIPPED — OPEN SOURCE PRODUCT. Remaining roadmap lives in the README feature
+checklist (additional execution providers, memory re-embedding). Real-key
+end-to-end pipeline verification is still pending a live Anthropic key.
 
 ## Tech Stack — Frontend
 
@@ -138,6 +149,82 @@ is part of Phase 3, not done yet.
 - allowed_commands: string[] — always run regardless of terminal_execution setting
 - denied_commands: string[] — always blocked regardless of terminal_execution setting
 - Every file access logged to file_access_log, every command to command_log
+
+## Cost Protection (Session 9)
+
+- settings columns: max_run_cost ($5 default, per pipeline run), max_agent_cost
+  ($2, per agent per run), max_daily_cost ($20, across ALL token_usage today —
+  runs, task runs, chat, planning; it protects the budget, not a category)
+- agent_executor._check_cost_limits runs before EVERY LLM call in the tool
+  loop, counting persisted token_usage PLUS the current agent's in-flight
+  tokens, so a runaway tool loop stops mid-agent
+- Limits are re-read from the DB on each check — raising a ceiling in Settings
+  takes effect immediately, even mid-run
+- CostLimitExceeded subclasses ExecutionError, so the orchestrator's existing
+  failure path (run 'failed', streamed error, notification) applies unchanged
+- The executor's finally block persists partial token usage on ANY failure —
+  burned tokens always land in token_usage or the guardrails would undercount
+
+## Atlas & the Eternal Agent Pattern (Session 9)
+
+- Eternal agents ship with Forge (agents.is_eternal = true) and cannot be
+  deleted: DELETE /api/agents/{id} 403s, the AgentCard shows a ⚡ badge instead
+  of the ⋯ menu, the detail page makes the system prompt read-only, and the
+  store's DELETE_AGENT reducer ignores them (defense in depth)
+- Atlas (fixed UUID 00000000-0000-0000-0000-000000000001) is seeded on every
+  backend startup from backend/db/seeds/001_eternal_agents.sql — seed files
+  are one-statement-per-file (asyncpg rejects multi-statement strings) and
+  idempotent (ON CONFLICT DO NOTHING); a failed seed warns loudly but doesn't
+  block startup (usual cause: unapplied migrations)
+- Atlas's only job is creating agents via the create_agent tool
+  (tool_registry.create_agent): exposed ONLY to eternal agents — appended to
+  the tool list at call time and double-guarded at dispatch; creations are
+  audited in file_access_log with operation='agent_created'
+- chat_reply runs a bounded tool loop (5 iterations) for eternal agents so
+  Atlas creates agents conversationally; regular agents stay tool-free in chat
+- The conversation page refreshes the agent roster after eternal-agent replies
+  and toasts each newly created agent
+- Eternal agents are excluded from auto-suggest selection (they never perform
+  pipeline tasks) and their amber ring (#f59e0b→#f97316) overrides avatar color
+
+## Task Runs (Session 9)
+
+- POST /api/tasks/{id}/run executes the assigned agent in the background:
+  reuses/creates the task's conversation (matched on task_id AND agent_id),
+  persists the description as the user message, sets status in_progress,
+  409s on double-run (module-level active-id set)
+- execute_agent now accepts pipeline_run_id=None (task runs): streaming
+  no-ops (no WS listener for the synthetic key), and approval-gated commands
+  FAIL as tool errors instead of pausing — there is no gate UI outside
+  pipelines, and a gated command must never silently run
+- Task workspace: linked pipeline's workspace_path if any, else
+  settings.workspace_root (the spec'd task.workspace_path column doesn't
+  exist — tasks have no workspace of their own)
+- Terminal statuses: 'review' on success (human verifies the output), back to
+  'backlog' on failure (there is no 'failed' task status), with a
+  notification + persisted error message either way
+- The conversation page polls messages every 3s while its task is
+  in_progress (merges by id, fetches the tail page ± 1) and shows a
+  "working on this task…" indicator
+
+## Auto-Pipeline Suggestion Flow (Session 9)
+
+1. CreatePipelineModal toggle "Let CEO suggest the pipeline" (default on when
+   a CEO-role agent exists) → POST /api/pipelines with auto_suggest=true and
+   an empty agent_sequence (manual mode still requires ≥1 agent)
+2. Background suggest_and_plan (services/planner.py): CEO returns JSON
+   {agent_sequence, missing_agents, reasoning}; ids are validated against the
+   roster (eternal agents excluded); for each missing agent Atlas is invoked
+   with tool_choice forced to create_agent (deterministic non-LLM fallback if
+   Atlas errors); created agents are appended after the existing ones
+3. Reasoning persists to pipelines.suggestion_reasoning (004 migration) and
+   renders as an expandable "CEO's Reasoning" section on the card
+4. Then the normal plan generation runs (generate_execution_plan): planner =
+   CEO in sequence → any CEO → first agent; LLM/key failures fall back to an
+   editable default template — plan_md ALWAYS terminates non-empty, which is
+   what stops the frontend's 3s poll (poll also stops on 404)
+5. Degradation: no roster → explanatory reasoning, empty sequence; no API
+   key/parse failure → CEO-alone sequence with the reason recorded
 
 ## Agent Execution Model
 
@@ -235,6 +322,7 @@ frontend/
   components/ErrorState.tsx           — error card with retry (Session 6)
   components/EmptyState.tsx           — icon/title/CTA empty card (Session 6)
   components/ErrorBanner.tsx          — global store.error banner in layout (Session 6)
+  components/OnboardingBanner.tsx     — first-run welcome card, localStorage dismiss (Session 9)
 ```
 
 ## Backend File Structure (created in Session 5)
@@ -248,20 +336,35 @@ backend/
   services/
     orchestrator.py, agent_executor.py, tool_registry.py
     memory_service.py, streaming.py, crypto.py
+    planner.py                       — CEO plan generation + auto-suggest (Session 9)
   db/
     connection.py, models.py
-    migrations/001_initial.sql
+    migrations/001_initial.sql       — full schema for fresh installs (kept current)
+    migrations/002–006_*.sql         — upgrades: is_eternal, agent_created log op,
+                                       suggestion_reasoning, archive, cost limits (Session 9)
+    seeds/001_eternal_agents.sql     — Atlas; run on every startup (Session 9)
   requirements.txt
   Dockerfile
 ```
 
-## What NOT to build yet
+## What NOT to build
 
-- Multi-user auth (single user only)
+- ~~Multi-user auth (single user only)~~ Multi-user auth — not planned
 - Cloud deployment (local first, Docker is enough)
 - Drag and drop kanban
-- Voice interface (Meridian integration — future phase)
+- ~~Voice interface (Meridian integration — future phase)~~ Voice interface — not planned
 - Payment/billing
+
+## Known Limitations
+
+- Single user only — no authentication or multi-tenancy
+- Local filesystem only — workspaces live on this machine, no cloud storage
+- Requires Docker Desktop on Mac (frontend + backend containers; Postgres
+  stays on the host)
+- Agent execution is Anthropic-only today; other providers' keys are stored
+  and testable in the vault but don't run agents yet
+- Command approval gates exist only in pipeline runs — standalone task runs
+  fail gated commands instead of pausing
 
 ## Session History Decisions
 
@@ -468,6 +571,50 @@ backend/
   (`model || availableGroups[0]?.models[0]`), not a `useEffect` that calls
   `setState` — the project's eslint config (react-hooks/set-state-in-effect)
   flags that pattern as an error
+
+### Session 9 (2026-07-16) — Ship-ready: Atlas, task runs, auto-pipeline, cost protection, open source
+
+- Migration discipline established: 001_initial.sql stays the complete schema
+  for fresh installs; every schema change ALSO ships as a numbered idempotent
+  upgrade migration (002 is_eternal, 003 agent_created log op, 004
+  suggestion_reasoning, 005 archived_at + status CHECK, 006 cost columns) —
+  run all in order works for both cases
+- Seeds vs migrations: db/seeds/ files run on EVERY startup (main.py lifespan)
+  and must be single-statement + idempotent; migrations run once via psql
+- The spec'd seed columns didn't all exist (agents has no updated_at; tasks
+  has assigned_to not assigned_agent_id; settings has workspace_root not
+  default_workspace_path) — schema is source of truth, seed/endpoints adapted
+- execute_agent's pipeline_run_id is now Optional; task runs pass None →
+  streaming no-ops and gated commands raise ToolError (never silently run,
+  never dead-wait on a gate no UI can approve)
+- Executor cost guardrails count in-flight tokens and re-read limits fresh
+  per check; partial usage persists from finally on any failure so
+  token_usage never undercounts (guardrails read it)
+- planner.py owns both CEO flows; every background path terminates in a
+  non-empty plan_md — that invariant is what stops the frontend 3s poll, so
+  keep it when touching plan generation
+- Atlas creation in auto-suggest uses tool_choice={"type":"tool"} to force
+  the create_agent call; a deterministic non-LLM fallback synthesizes the
+  agent if Atlas errors (name = role, generic pipeline prompt)
+- Pipeline delete relies on FK cascades (runs/conversations/messages CASCADE;
+  tasks/token_usage SET NULL) — no manual cleanup queries; archive/delete
+  both 409 while a run is in ('running','paused_for_approval','approved')
+- Pipelines page card extracted into PipelineCard (menu state per card, same
+  outside-click pattern as AgentCard); ARCHIVE_PIPELINE/DELETE_PIPELINE/
+  UPDATE_PIPELINE added to the store union
+- Onboarding banner gates on agents.length === 1 && agents[0].is_eternal &&
+  tasks.length === 0; dismissal key "forge:onboarding-dismissed"; the banner
+  reveals AFTER a mount-time localStorage check so SSR and client agree
+- Deviation from session spec, on purpose: frontend/.next stays gitignored —
+  named volumes are populated at container runtime, never from git, and
+  committing build cache would bloat the repo (spec's stated reason was
+  factually wrong); .env/.venv/graphify ignores were already correct
+- README rewritten as a capability landing page in the same session commit
+  block as this CLAUDE.md update (G9 commit precedes G10; both this session)
+- Verification without a real Anthropic key: every LLM-dependent path was
+  exercised to its fallback (plan template, CEO-alone suggestion, task-run
+  failure bookkeeping) against local Postgres; streamed real-key runs remain
+  Phase-3-verification debt
 
 ## CLAUDE.md Rules
 

@@ -14,20 +14,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from db.connection import get_db
 from db.models import Agent, Conversation, Message, Pipeline, PipelineRun, Settings
 from services.orchestrator import start_pipeline_run
+from services.planner import generate_execution_plan, suggest_and_plan
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
-# Strong references so background pipeline runs aren't garbage-collected.
+ACTIVE_RUN_STATUSES = ("running", "paused_for_approval", "approved")
+
+# Strong references so background jobs (runs, plan generation) aren't
+# garbage-collected mid-flight.
 _running_pipelines: set[asyncio.Task] = set()
+
+
+def _spawn_background(coro) -> None:
+    job = asyncio.create_task(coro)
+    _running_pipelines.add(job)
+    job.add_done_callback(_running_pipelines.discard)
 
 
 class PipelineCreate(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
-    agent_sequence: list[uuid.UUID] = Field(min_length=1)
+    # Empty is allowed only with auto_suggest — the CEO fills the sequence.
+    agent_sequence: list[uuid.UUID] = Field(default_factory=list)
     plan_md: str = ""
     workspace_path: str | None = None  # None -> settings.workspace_root/<slug>
     created_by: uuid.UUID | None = None
+    auto_suggest: bool = False
 
 
 class PipelineOut(BaseModel):
@@ -40,8 +52,10 @@ class PipelineOut(BaseModel):
     agent_sequence: list[uuid.UUID]
     created_by: uuid.UUID | None
     plan_md: str
+    suggestion_reasoning: str | None = None
     workspace_path: str
     approved_at: datetime | None
+    archived_at: datetime | None = None
     created_at: datetime
 
 
@@ -82,12 +96,23 @@ async def list_pipelines(db: AsyncSession = Depends(get_db)) -> list[Pipeline]:
 
 @router.post("", response_model=PipelineOut, status_code=201)
 async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_db)) -> Pipeline:
-    known = (
-        await db.execute(select(Agent.id).where(Agent.id.in_(body.agent_sequence)))
-    ).scalars().all()
-    missing = set(body.agent_sequence) - set(known)
-    if missing:
-        raise HTTPException(status_code=400, detail=f"Unknown agent ids: {sorted(map(str, missing))}")
+    if body.auto_suggest:
+        agent_sequence: list[uuid.UUID] = []  # the CEO fills this in the background
+    else:
+        if not body.agent_sequence:
+            raise HTTPException(
+                status_code=400,
+                detail="agent_sequence must have at least one agent unless auto_suggest is set",
+            )
+        known = (
+            await db.execute(select(Agent.id).where(Agent.id.in_(body.agent_sequence)))
+        ).scalars().all()
+        missing = set(body.agent_sequence) - set(known)
+        if missing:
+            raise HTTPException(
+                status_code=400, detail=f"Unknown agent ids: {sorted(map(str, missing))}"
+            )
+        agent_sequence = body.agent_sequence
 
     workspace_path = body.workspace_path
     if not workspace_path:
@@ -101,7 +126,7 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
     pipeline = Pipeline(
         title=body.title,
         description=body.description,
-        agent_sequence=body.agent_sequence,
+        agent_sequence=agent_sequence,
         created_by=body.created_by,
         plan_md=body.plan_md,
         workspace_path=workspace_path,
@@ -109,6 +134,15 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
     db.add(pipeline)
     await db.commit()
     await db.refresh(pipeline)
+
+    # Background follow-ups; the frontend polls GET /api/pipelines/{id} until
+    # plan_md is populated, and both flows always terminate in a non-empty plan.
+    # auto_suggest: CEO picks the sequence (Atlas creates gaps), then plans.
+    # Otherwise, an empty plan gets drafted by the CEO / first agent.
+    if body.auto_suggest:
+        _spawn_background(suggest_and_plan(pipeline.id))
+    elif not pipeline.plan_md.strip():
+        _spawn_background(generate_execution_plan(pipeline.id))
     return pipeline
 
 
@@ -150,9 +184,7 @@ async def approve_pipeline(pipeline_id: uuid.UUID, db: AsyncSession = Depends(ge
     await db.commit()
     await db.refresh(run)
 
-    task = asyncio.create_task(start_pipeline_run(run.id))
-    _running_pipelines.add(task)
-    task.add_done_callback(_running_pipelines.discard)
+    _spawn_background(start_pipeline_run(run.id))
     return RunOut.model_validate(run)
 
 
@@ -185,6 +217,48 @@ async def approve_gate(
     await db.commit()
     await db.refresh(run)
     return RunOut.model_validate(run)
+
+
+async def _active_run_count(pipeline_id: uuid.UUID, db: AsyncSession) -> int:
+    return (
+        await db.execute(
+            select(func.count())
+            .select_from(PipelineRun)
+            .where(
+                PipelineRun.pipeline_id == pipeline_id,
+                PipelineRun.status.in_(ACTIVE_RUN_STATUSES),
+            )
+        )
+    ).scalar_one()
+
+
+@router.delete("/{pipeline_id}", status_code=204)
+async def delete_pipeline(pipeline_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
+    """Delete a pipeline and (via FK cascades) its runs, conversations and
+    messages. Tasks and token_usage survive with their pipeline refs nulled."""
+    pipeline = await _get_pipeline_or_404(pipeline_id, db)
+    if await _active_run_count(pipeline_id, db):
+        raise HTTPException(
+            status_code=409, detail="Cannot delete a running pipeline. Stop it first."
+        )
+    await db.delete(pipeline)
+    await db.commit()
+
+
+@router.patch("/{pipeline_id}/archive", response_model=PipelineOut)
+async def archive_pipeline(
+    pipeline_id: uuid.UUID, db: AsyncSession = Depends(get_db)
+) -> Pipeline:
+    pipeline = await _get_pipeline_or_404(pipeline_id, db)
+    if await _active_run_count(pipeline_id, db):
+        raise HTTPException(
+            status_code=409, detail="Cannot archive a running pipeline. Stop it first."
+        )
+    pipeline.status = "archived"
+    pipeline.archived_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(pipeline)
+    return pipeline
 
 
 @router.get("/{pipeline_id}/runs", response_model=list[RunOut])

@@ -48,6 +48,7 @@ class AgentOut(BaseModel):
     model: str
     system_prompt: str
     status: str
+    is_eternal: bool = False
     last_active: datetime | None
     created_at: datetime
     tokens_used: int = 0
@@ -231,6 +232,10 @@ async def update_agent(
 @router.delete("/{agent_id}", status_code=204)
 async def delete_agent(agent_id: uuid.UUID, db: AsyncSession = Depends(get_db)) -> None:
     agent = await _get_agent_or_404(agent_id, db)
+    if agent.is_eternal:
+        raise HTTPException(
+            status_code=403, detail=f"{agent.name} is an eternal agent and cannot be deleted."
+        )
 
     active_runs = (
         await db.execute(

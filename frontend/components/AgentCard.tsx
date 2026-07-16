@@ -16,6 +16,9 @@ const RING_COLORS: Record<string, [string, string]> = {
   "#f97316": ["#f97316", "#eab308"],
 };
 
+// Eternal agents (Atlas) always wear the amber ring, whatever their avatar color.
+const ETERNAL_GRADIENT = "linear-gradient(to right, #f59e0b, #f97316)";
+
 function getGradient(color: string) {
   const pair = RING_COLORS[color] ?? [color, color];
   return `linear-gradient(to right, ${pair[0]}, ${pair[1]})`;
@@ -97,7 +100,10 @@ export default function AgentCard({ agent, currentTask, onDeleted, onError }: Pr
       <Link href={`/agents/${agent.id}`} className="block h-full">
         <div
           className="rounded-xl overflow-hidden transition-transform duration-150 group-hover:scale-[1.01] h-full"
-          style={{ padding: "1px", background: getGradient(agent.avatar_color) }}
+          style={{
+            padding: "1px",
+            background: agent.is_eternal ? ETERNAL_GRADIENT : getGradient(agent.avatar_color),
+          }}
         >
           <div className="rounded-xl p-4 h-full flex flex-col gap-3" style={{ background: "#111111" }}>
             <div>
@@ -130,6 +136,15 @@ export default function AgentCard({ agent, currentTask, onDeleted, onError }: Pr
         </div>
       </Link>
 
+      {agent.is_eternal ? (
+        <span
+          className="absolute top-2 right-2 w-6 h-6 rounded-md flex items-center justify-center text-xs"
+          style={{ background: "#2a1a00", color: "#f59e0b" }}
+          title="Eternal agent — part of Forge, cannot be edited or deleted"
+        >
+          ⚡
+        </span>
+      ) : (
       <div className="absolute top-2 right-2" ref={menuRef}>
         <button
           onClick={() => setMenuOpen((o) => !o)}
@@ -165,6 +180,7 @@ export default function AgentCard({ agent, currentTask, onDeleted, onError }: Pr
           </div>
         )}
       </div>
+      )}
 
       {confirming && (
         <ConfirmDialog

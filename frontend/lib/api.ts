@@ -30,6 +30,7 @@ import type {
   SendMessageResult,
   TaskCreatePayload,
   TaskListFilters,
+  TaskRunResult,
   TaskUpdatePayload,
   TokenUsageInterval,
   TokenUsageSeries,
@@ -141,6 +142,9 @@ export const approveGate = (pipelineId: string, runId: string) =>
   post<PipelineRun>(`/api/pipelines/${pipelineId}/runs/${runId}/approve-gate`);
 export const listPipelineRuns = (pipelineId: string) =>
   get<PipelineRun[]>(`/api/pipelines/${pipelineId}/runs`);
+export const deletePipeline = (pipelineId: string) => del(`/api/pipelines/${pipelineId}`);
+export const archivePipeline = (pipelineId: string) =>
+  patch<BackendPipeline>(`/api/pipelines/${pipelineId}/archive`, {});
 
 // ---------------------------------------------------------------- tasks
 
@@ -151,6 +155,7 @@ export const createTask = (payload: TaskCreatePayload) =>
 export const updateTask = (taskId: string, payload: TaskUpdatePayload) =>
   patch<BackendTask>(`/api/tasks/${taskId}`, payload);
 export const deleteTask = (taskId: string) => del(`/api/tasks/${taskId}`);
+export const runTask = (taskId: string) => post<TaskRunResult>(`/api/tasks/${taskId}/run`);
 
 // ---------------------------------------------------------------- conversations
 

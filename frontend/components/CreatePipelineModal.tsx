@@ -31,6 +31,10 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
   const [submitting, setSubmitting] = useState(false);
 
   const agents = state.agents;
+  // Auto-suggest defaults on when a CEO-role agent exists to do the choosing.
+  const [autoSuggest, setAutoSuggest] = useState(
+    () => state.agents.some((a) => a.role.trim().toLowerCase() === "ceo"),
+  );
 
   function toggleAgent(agentId: string) {
     setSelectedAgents((prev) =>
@@ -38,14 +42,20 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
     );
   }
 
+  const canSubmit =
+    title.trim().length > 0 &&
+    (autoSuggest || selectedAgents.length > 0) &&
+    (workspaceMode === "new" || existingPath.trim().length > 0);
+
   async function handleCreate() {
-    if (submitting || !title.trim() || selectedAgents.length === 0) return;
+    if (submitting || !canSubmit) return;
     setSubmitting(true);
     try {
       const pipeline = await createPipeline({
         title: title.trim(),
         description,
-        agent_sequence: selectedAgents,
+        agent_sequence: autoSuggest ? [] : selectedAgents,
+        auto_suggest: autoSuggest,
         workspace_path:
           workspaceMode === "existing" && existingPath.trim() ? existingPath.trim() : undefined,
       });
@@ -56,11 +66,6 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
       setSubmitting(false);
     }
   }
-
-  const canSubmit =
-    title.trim().length > 0 &&
-    selectedAgents.length > 0 &&
-    (workspaceMode === "new" || existingPath.trim().length > 0);
 
   return (
     <div
@@ -116,7 +121,38 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
             />
           </div>
 
-          {/* Agents */}
+          {/* Auto-suggest toggle */}
+          <div>
+            <button
+              onClick={() => setAutoSuggest((v) => !v)}
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg border w-full transition-colors duration-150"
+              style={{ background: "#0d0d0d", borderColor: autoSuggest ? "#f59e0b" : "#1f1f1f" }}
+            >
+              <span
+                className="relative inline-block w-11 h-6 rounded-full overflow-hidden transition-colors duration-150 shrink-0"
+                style={{ background: autoSuggest ? "#f59e0b" : "#2a2a2a" }}
+              >
+                <span
+                  className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full transition-transform duration-150 ${
+                    autoSuggest ? "translate-x-5" : "translate-x-0"
+                  }`}
+                  style={{ background: autoSuggest ? "#0a0a0a" : "#71717a" }}
+                />
+              </span>
+              <span className="text-sm" style={{ color: autoSuggest ? "#f5f5f5" : "#71717a" }}>
+                Let CEO suggest the pipeline
+              </span>
+            </button>
+            {autoSuggest && (
+              <p className="text-xs mt-2 leading-relaxed" style={{ color: "#71717a" }}>
+                CEO will select the best agents for this task — and Atlas will create any
+                that are missing. You&apos;ll review and approve before anything runs.
+              </p>
+            )}
+          </div>
+
+          {/* Agents (manual mode only) */}
+          {!autoSuggest && (
           <div>
             <label className="text-xs font-medium block mb-2" style={{ color: "#71717a" }}>
               Agents (in run order)
@@ -163,6 +199,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
               })}
             </div>
           </div>
+          )}
 
           {/* Workspace */}
           <div>

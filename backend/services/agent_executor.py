@@ -14,17 +14,29 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from anthropic import AsyncAnthropic
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.connection import get_session_factory
-from db.models import Agent, ApiKey, Conversation, Message, PipelineRun, Settings, Task, TokenUsage
+from db.models import (
+    Agent,
+    ApiKey,
+    Conversation,
+    Message,
+    Notification,
+    Pipeline,
+    PipelineRun,
+    Settings,
+    Task,
+    TokenUsage,
+)
 from services import memory_service
 from services.crypto import CryptoError, decrypt_key, get_secret_key
-from services.streaming import StreamingManager
+from services.streaming import StreamingManager, streaming_manager
 from services.tool_registry import (
     NeedsApprovalError,
     ToolError,
+    create_agent,
     read_file,
     run_command,
     search_codebase,
@@ -96,9 +108,77 @@ TOOLS = [
     },
 ]
 
+# Only eternal agents (Atlas) get this tool — it is appended to their tool
+# list at call time and its dispatch double-checks is_eternal.
+CREATE_AGENT_TOOL = {
+    "name": "create_agent",
+    "description": (
+        "Create a new AI agent in Forge. The agent is registered immediately "
+        "and can then be assigned tasks and pipeline roles."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Short display name, e.g. 'Vega'"},
+            "role": {"type": "string", "description": "Role title, e.g. 'Frontend Developer'"},
+            "specialty": {
+                "type": "string",
+                "description": "One sentence on what this agent is best at",
+            },
+            "system_prompt": {
+                "type": "string",
+                "description": "Full system prompt defining the agent's behavior and expertise",
+            },
+            "model": {
+                "type": "string",
+                "description": "Model id to run the agent on (default claude-sonnet-4-6)",
+            },
+            "avatar_color": {
+                "type": "string",
+                "description": "Hex accent color: #6366f1, #f59e0b, #3b82f6, #22c55e, #ec4899 or #f97316",
+            },
+        },
+        "required": ["name", "role", "specialty", "system_prompt"],
+    },
+}
+
+
+def _tools_for(agent: Agent) -> list[dict]:
+    return [*TOOLS, CREATE_AGENT_TOOL] if agent.is_eternal else TOOLS
+
+
+async def _dispatch_create_agent(
+    agent: Agent,
+    args: dict,
+    db: AsyncSession,
+    pipeline_run_id: uuid.UUID | None = None,
+) -> str:
+    if not agent.is_eternal:
+        raise ToolError("create_agent is reserved for eternal agents")
+    result = await create_agent(
+        name=str(args.get("name", "")),
+        role=str(args.get("role", "")),
+        specialty=str(args.get("specialty", "")),
+        system_prompt=str(args.get("system_prompt", "")),
+        model=str(args.get("model") or "claude-sonnet-4-6"),
+        avatar_color=str(args.get("avatar_color") or "#6366f1"),
+        db=db,
+        creator_agent_id=agent.id,
+        pipeline_run_id=pipeline_run_id,
+    )
+    return json.dumps(result)
+
 
 class ExecutionError(Exception):
     """Agent execution failed in a way the pipeline should surface."""
+
+
+class CostLimitExceeded(ExecutionError):
+    """A configured cost ceiling was crossed — the run must stop.
+
+    Subclasses ExecutionError so the orchestrator's failure path (run status
+    'failed', error streamed, notification created) applies unchanged.
+    """
 
 
 @dataclass
@@ -180,6 +260,69 @@ def _build_system_prompt(
     return "\n\n".join(parts)
 
 
+async def _check_cost_limits(
+    agent: Agent,
+    pipeline_run_id: uuid.UUID | None,
+    settings: Settings,
+    in_flight: float = 0.0,
+) -> None:
+    """Raise CostLimitExceeded before an LLM call once any ceiling is crossed.
+
+    `in_flight` is the current agent execution's not-yet-persisted spend, so
+    a runaway tool loop is stopped mid-agent, not just at agent boundaries.
+    Limits are re-read from the DB each call so raising a ceiling in Settings
+    takes effect immediately, even mid-run. The daily total spans ALL
+    token_usage (runs, task runs, chat, planning) — it protects the budget,
+    not a bookkeeping category.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        fresh = (await db.execute(select(Settings))).scalar_one_or_none()
+        limits = fresh if fresh is not None else settings
+
+        daily = (
+            await db.execute(
+                select(func.coalesce(func.sum(TokenUsage.cost_usd), 0)).where(
+                    TokenUsage.recorded_at >= func.date_trunc("day", func.now())
+                )
+            )
+        ).scalar_one()
+        if float(daily) + in_flight >= float(limits.max_daily_cost):
+            raise CostLimitExceeded(
+                f"Daily cost limit reached (${float(limits.max_daily_cost):.2f} across all "
+                f"runs today) — raise max_daily_cost in Settings to continue"
+            )
+
+        if pipeline_run_id is None:
+            return
+        run_total = (
+            await db.execute(
+                select(func.coalesce(func.sum(TokenUsage.cost_usd), 0)).where(
+                    TokenUsage.pipeline_run_id == pipeline_run_id
+                )
+            )
+        ).scalar_one()
+        if float(run_total) + in_flight >= float(limits.max_run_cost):
+            raise CostLimitExceeded(
+                f"Run cost limit reached (${float(limits.max_run_cost):.2f}) — "
+                f"raise max_run_cost in Settings and run again"
+            )
+        agent_total = (
+            await db.execute(
+                select(func.coalesce(func.sum(TokenUsage.cost_usd), 0)).where(
+                    TokenUsage.pipeline_run_id == pipeline_run_id,
+                    TokenUsage.agent_id == agent.id,
+                )
+            )
+        ).scalar_one()
+        if float(agent_total) + in_flight >= float(limits.max_agent_cost):
+            raise CostLimitExceeded(
+                f"Agent cost limit reached for {agent.name} "
+                f"(${float(limits.max_agent_cost):.2f} per run) — raise max_agent_cost "
+                f"in Settings and run again"
+            )
+
+
 async def _wait_for_gate_approval(
     pipeline_run_id: uuid.UUID,
     gate_message_id: uuid.UUID,
@@ -246,7 +389,7 @@ async def _execute_tool(
     *,
     agent: Agent,
     conversation_id: uuid.UUID,
-    pipeline_run_id: uuid.UUID,
+    pipeline_run_id: uuid.UUID | None,
     workspace_path: str,
     settings_dict: dict,
     streaming_manager: StreamingManager,
@@ -255,6 +398,8 @@ async def _execute_tool(
     """Run one tool call; command approvals block here until resolved."""
     session_factory = get_session_factory()
     async with session_factory() as db:
+        if name == "create_agent":
+            return await _dispatch_create_agent(agent, args, db, pipeline_run_id)
         if name == "read_file":
             output.files_touched.append(args["path"])
             return await read_file(
@@ -286,6 +431,15 @@ async def _execute_tool(
                         )
                         return json.dumps(result)
                     except NeedsApprovalError as exc:
+                        if pipeline_run_id is None:
+                            # Single-agent task runs have no approval-gate UI;
+                            # a gated command must fail, never silently run.
+                            raise ToolError(
+                                f"Command requires human approval ({exc.reason}) and task "
+                                "runs have no approval gate. Add the command to "
+                                "allowed_commands in Settings, or run this task inside "
+                                "a pipeline."
+                            ) from exc
                         await _handle_command_approval(
                             exc,
                             agent=agent,
@@ -299,6 +453,7 @@ async def _execute_tool(
 
 CHAT_HISTORY_LIMIT = 40
 CHAT_MAX_OUTPUT_TOKENS = 4096
+CHAT_MAX_TOOL_ITERATIONS = 5  # Atlas creating a handful of agents per turn is plenty
 
 
 async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
@@ -361,13 +516,53 @@ async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
     if not merged:
         return None
 
+    # Eternal agents (Atlas) get create_agent in chat — their whole job is
+    # designing agents conversationally. Regular agents stay tool-free here.
+    request_kwargs: dict = {
+        "model": agent.model,
+        "max_tokens": CHAT_MAX_OUTPUT_TOKENS,
+        "system": system_prompt,
+    }
+    if agent.is_eternal:
+        request_kwargs["tools"] = [CREATE_AGENT_TOOL]
+
+    input_tokens = 0
+    output_tokens = 0
     try:
-        response = await client.messages.create(
-            model=agent.model,
-            max_tokens=CHAT_MAX_OUTPUT_TOKENS,
-            system=system_prompt,
-            messages=merged,
-        )
+        response = await client.messages.create(messages=merged, **request_kwargs)
+        input_tokens += response.usage.input_tokens
+        output_tokens += response.usage.output_tokens
+
+        for _ in range(CHAT_MAX_TOOL_ITERATIONS):
+            if response.stop_reason != "tool_use":
+                break
+            merged.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for block in response.content:
+                if block.type != "tool_use":
+                    continue
+                try:
+                    if block.name != "create_agent":
+                        raise ToolError(f"Tool '{block.name}' is not available in chat")
+                    async with session_factory() as db:
+                        result_str = await _dispatch_create_agent(
+                            agent, dict(block.input), db
+                        )
+                    is_error = False
+                except ToolError as exc:
+                    result_str, is_error = f"Error: {exc}", True
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": result_str,
+                        **({"is_error": True} if is_error else {}),
+                    }
+                )
+            merged.append({"role": "user", "content": tool_results})
+            response = await client.messages.create(messages=merged, **request_kwargs)
+            input_tokens += response.usage.input_tokens
+            output_tokens += response.usage.output_tokens
     except Exception as exc:
         async with session_factory() as db:
             agent_row = await db.get(Agent, agent.id)
@@ -377,8 +572,6 @@ async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
         raise ExecutionError(f"Anthropic call failed: {exc}") from exc
 
     text = "".join(b.text for b in response.content if b.type == "text")
-    input_tokens = response.usage.input_tokens
-    output_tokens = response.usage.output_tokens
     cost = _cost(agent.model, input_tokens, output_tokens)
 
     async with session_factory() as db:
@@ -419,14 +612,17 @@ async def execute_agent(
     agent: Agent,
     task: Task,
     conversation_id: uuid.UUID,
-    pipeline_run_id: uuid.UUID,
+    pipeline_run_id: uuid.UUID | None,
     workspace_path: str,
     prior_context: list[dict],
     settings: Settings,
     streaming_manager: StreamingManager,
 ) -> AgentOutput:
     session_factory = get_session_factory()
-    run_id = str(pipeline_run_id)
+    # pipeline_run_id None = standalone task run: no WebSocket listener exists
+    # for the synthetic key, so streaming calls become no-ops, and command
+    # approval gates are unavailable (gated commands fail as tool errors).
+    run_id = str(pipeline_run_id) if pipeline_run_id is not None else f"task:{task.id}"
 
     # 1. Recall relevant memories (top 5, similarity >= 0.3)
     async with session_factory() as db:
@@ -459,16 +655,25 @@ async def execute_agent(
 
     output = AgentOutput(content="", tokens_used=0, input_tokens=0, output_tokens=0, cost_usd=0.0)
     final_text = ""
+    usage_persisted = False
 
     try:
         # 3–5. Streaming tool-use loop
         for _ in range(MAX_TOOL_ITERATIONS):
+            # Cost guardrails: persisted spend plus this agent's in-flight
+            # tokens, checked before every LLM call.
+            await _check_cost_limits(
+                agent,
+                pipeline_run_id,
+                settings,
+                in_flight=_cost(agent.model, output.input_tokens, output.output_tokens),
+            )
             async with client.messages.stream(
                 model=agent.model,
                 max_tokens=MAX_OUTPUT_TOKENS,
                 system=system_prompt,
                 messages=messages,
-                tools=TOOLS,
+                tools=_tools_for(agent),
             ) as stream:
                 async for event in stream:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
@@ -556,6 +761,7 @@ async def execute_agent(
                 conversation.last_message = output.content[:300]
                 conversation.last_active = datetime.now(timezone.utc)
             await db.commit()
+            usage_persisted = True
             await memory_service.save_memory(
                 db,
                 agent.id,
@@ -565,9 +771,112 @@ async def execute_agent(
             )
         return output
     finally:
+        # Tokens burned before a failure (cost limit, API error, cancel) must
+        # still be accounted for — the cost guardrails read token_usage.
+        if not usage_persisted and (output.input_tokens or output.output_tokens):
+            async with session_factory() as db:
+                db.add(
+                    TokenUsage(
+                        agent_id=agent.id,
+                        pipeline_run_id=pipeline_run_id,
+                        provider="anthropic",
+                        model=agent.model,
+                        input_tokens=output.input_tokens,
+                        output_tokens=output.output_tokens,
+                        cost_usd=_cost(agent.model, output.input_tokens, output.output_tokens),
+                    )
+                )
+                await db.commit()
         async with session_factory() as db:
             agent_row = await db.get(Agent, agent.id)
             if agent_row is not None:
                 agent_row.status = "idle"
                 agent_row.last_active = datetime.now(timezone.utc)
                 await db.commit()
+
+
+async def run_task_agent(task_id: uuid.UUID, conversation_id: uuid.UUID) -> None:
+    """Background entry point for single-agent task runs (POST /api/tasks/{id}/run).
+
+    Runs execute_agent with no pipeline run: memory recall and token usage
+    still persist, but nothing streams (no WebSocket listener) and gated
+    commands fail instead of pausing. The task lands in 'review' on success
+    and back in 'backlog' on failure so it never sticks in 'in_progress'.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        task = await db.get(Task, task_id)
+        if task is None or task.assigned_to is None:
+            return
+        agent = await db.get(Agent, task.assigned_to)
+        if agent is None:
+            return
+        settings = (await db.execute(select(Settings))).scalar_one_or_none()
+        if settings is None:  # single-row config; recreate defaults if the seed is missing
+            settings = Settings(id=1)
+            db.add(settings)
+            await db.commit()
+            await db.refresh(settings)
+        # Tasks have no workspace of their own: use the linked pipeline's
+        # workspace when there is one, else the global workspace root.
+        workspace_path = None
+        if task.pipeline_id is not None:
+            pipeline = await db.get(Pipeline, task.pipeline_id)
+            if pipeline is not None:
+                workspace_path = pipeline.workspace_path
+        if not workspace_path:
+            workspace_path = os.path.expanduser(settings.workspace_root)
+    os.makedirs(workspace_path, exist_ok=True)
+
+    try:
+        output = await execute_agent(
+            agent=agent,
+            task=task,
+            conversation_id=conversation_id,
+            pipeline_run_id=None,
+            workspace_path=workspace_path,
+            prior_context=[],
+            settings=settings,
+            streaming_manager=streaming_manager,
+        )
+    except Exception as exc:
+        logger.exception("Task run %s failed", task_id)
+        async with session_factory() as db:
+            row = await db.get(Task, task_id)
+            if row is not None and row.status == "in_progress":
+                row.status = "backlog"
+            db.add(
+                Message(
+                    conversation_id=conversation_id,
+                    agent_id=agent.id,
+                    role="assistant",
+                    content=f"⚠️ Task run failed: {exc}",
+                )
+            )
+            db.add(
+                Notification(
+                    type="agent_error",
+                    title=f"Task failed: {task.title}",
+                    body=str(exc)[:500],
+                    link=f"/agents/{agent.id}/conversations/{conversation_id}",
+                )
+            )
+            conv = await db.get(Conversation, conversation_id)
+            if conv is not None:
+                conv.last_message = f"⚠️ Task run failed: {exc}"[:300]
+                conv.last_active = datetime.now(timezone.utc)
+            await db.commit()
+    else:
+        async with session_factory() as db:
+            row = await db.get(Task, task_id)
+            if row is not None and row.status == "in_progress":
+                row.status = "review"
+            db.add(
+                Notification(
+                    type="info",
+                    title=f"Task complete: {task.title}",
+                    body=output.content[:500],
+                    link=f"/agents/{agent.id}/conversations/{conversation_id}",
+                )
+            )
+            await db.commit()

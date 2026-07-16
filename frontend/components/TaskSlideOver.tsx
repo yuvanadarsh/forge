@@ -26,10 +26,12 @@ function formatDate(iso: string) {
 interface Props {
   task: BackendTask;
   agent?: BackendAgent;
+  /** Kicks off real single-agent execution (POST /api/tasks/{id}/run). */
+  onRun?: () => void;
   onClose: () => void;
 }
 
-export default function TaskSlideOver({ task, agent, onClose }: Props) {
+export default function TaskSlideOver({ task, agent, onRun, onClose }: Props) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -151,8 +153,22 @@ export default function TaskSlideOver({ task, agent, onClose }: Props) {
             <p className="text-sm" style={{ color: "#a1a1aa" }}>{formatDate(task.created_at)}</p>
           </div>
 
-          {/* View Conversation */}
-          <div className="pt-2 border-t" style={{ borderColor: "#1f1f1f" }}>
+          {/* Run + View Conversation */}
+          <div className="pt-2 border-t space-y-2" style={{ borderColor: "#1f1f1f" }}>
+            {onRun && (
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150"
+                style={{ background: "#f59e0b", color: "#0a0a0a" }}
+                onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#d97706")}
+                onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.background = "#f59e0b")}
+                onClick={onRun}
+              >
+                <span>{task.status === "in_progress" ? "Running…" : `Run with ${agent?.name ?? "agent"}`}</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <polygon points="6 3 20 12 6 21 6 3" />
+                </svg>
+              </button>
+            )}
             <button
               className="w-full flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-colors duration-150"
               style={{ background: "#1a1a1a", color: "#71717a" }}

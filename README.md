@@ -1,137 +1,77 @@
-# Forge
+# Forge ⚡
 
-**Multi-agent AI orchestration dashboard.** Spawn specialized AI agents (CEO, Architect, Developer, Tester, etc.), assign them tasks, and watch them execute pipelines with human approval gates at critical steps.
+> Describe a project. Watch a team of AI agents build it.
 
----
-
-## Screenshots
-
-> _Screenshots to be added once the UI is deployed or running locally._
+Forge is a **local-first multi-agent AI orchestration platform**. You describe
+what you want built, a team of specialized AI agents plans it, builds it, and
+ships it — with you in the loop at every critical step.
 
 ---
+
+## What makes Forge different
+
+- **Human-in-the-loop by design** — you approve plans before agents touch code,
+  and approval gates pause execution at phase boundaries and risky commands
+- **Multi-agent pipelines** — CEO → Architect → Developer → Tester, coordinated
+  by LangGraph with pause/resume checkpoints
+- **Atlas** — the eternal agent that designs and creates new agents on demand
+- **Local-first** — your code, database, and API keys never leave your machine
+- **Real cost tracking** — see exactly what each agent costs per run, with hard
+  per-run / per-agent / daily ceilings that stop runaways automatically
+- **Encrypted multi-provider key vault** — Claude executes agents today;
+  OpenAI-compatible and Voyage keys are stored (AES-256-GCM) and testable, with
+  more execution providers on the roadmap
 
 ## Features
 
-### Phase 1 — Mock UI Foundation ✅
+- [x] Dashboard with live agent grid, cost analytics, and operations kanban
+- [x] Atlas, the eternal agent — creates new agents via chat (`create_agent` tool)
+- [x] Single-agent task execution — the Run button on any task executes its
+      assigned agent against a real workspace
+- [x] Multi-agent pipelines with LangGraph orchestration and approval gates
+- [x] CEO auto-generates execution plans on pipeline creation
+- [x] Auto-pipeline suggestion — the CEO picks the team, Atlas creates missing agents
+- [x] Pipeline archive and delete
+- [x] Real-time WebSocket streaming of tokens, tool calls, and gates
+- [x] Agent memory — pgvector similarity recall of past work (VoyageAI embeddings)
+- [x] Command security model — allow/deny lists, strict mode, full audit logs
+- [x] Cost protection — per-run, per-agent, and daily spending ceilings
+- [x] Encrypted API key vault with one-click provider testing
+- [x] Token usage and cost analytics per agent, provider, and time bucket
+- [ ] Additional execution providers (OpenAI, Gemini, local models)
+- [ ] Re-embedding of agent memory on model change
 
-- [x] **Dashboard** — Agent grid with status indicators, token counts, and cost display; Operations kanban board (Backlog / In Progress / Review / Completed)
-- [x] **Agent Registry** (`/agents`) — Full grid of all agents with "+ Create Agent" button
-- [x] **Agent Detail** (`/agents/[id]`) — Agent header, task conversations list, General Chat button, system prompt view
-- [x] **Chat Window** (`/agents/[id]/conversations/[convId]`) — Left sidebar with conversation list, chat message bubbles, live send input
-- [x] **Global Chat** (`/chat`) — All conversations grouped by agent, searchable
-- [x] **Pipelines** (`/pipelines`) — Pipeline list with expandable plan_md view and approval buttons
-- [x] **Tasks** (`/tasks`) — Full kanban board with per-column "+ task" buttons
-- [x] **Create Agent Modal** — Name, role, specialty, model, system prompt, 6 color presets
-- [x] **Create Task Modal** — Title, description, agent picker grid, priority selector, Backlog/Start Now actions
-- [x] **Toast notifications** — "Coming soon" on all Run buttons with fade animation
-- [x] **Sidebar navigation** — Fixed left sidebar with Forge logo, nav links, active state, Settings
-- [x] **Design system** — Dark theme (#0a0a0a background, #f59e0b amber accent, Geist font)
+## Quick Start
 
-### Phase 1.5 — UI Polish ✅
+**Prerequisites:** Docker Desktop, and PostgreSQL 15+ running on the host with
+the [pgvector](https://github.com/pgvector/pgvector) extension
+(`brew install postgresql@16 pgvector` on macOS).
 
-- [x] **Equal-height agent cards** — CSS grid `items-stretch` + `h-full` on card internals
-- [x] **Create Agent on Dashboard** — "+ Create Agent" button in dashboard header alongside "+ New Task"
-- [x] **Role preset system** — Create Agent modal now has 12 presets (CEO, CTO, Architect, etc.) that auto-fill role title, specialty, and system prompt — all fields remain freely editable
-- [x] **Task "Move to →" dropdown** — Every task card now has an inline status mover on both `/tasks` and dashboard kanban
-- [x] **Task detail slide-over** — Click any task card to open a 400px slide-over panel showing full title, description, assigned agent, priority, status, and created date
-- [x] **Editable system prompt** — Agent detail page now has Edit/Save/Cancel for system prompt
-- [x] **Token usage graph** — Bar chart on agent detail page with Day/Week/Month/All Time toggle (recharts)
-- [x] **Markdown + syntax highlighting** — Chat messages render markdown with `react-markdown` + `rehype-highlight`
-- [x] **Condensed /chat page** — Single-row layout with avatar, agent name·role, conversation title, preview, timestamp; left border color matches agent
-- [x] **Full Settings page** — API keys (add/update/delete/test), Embeddings (locked model picker + warning), Export Data (working JSON downloads)
-- [x] **Pipeline edit modal** — Edit title and reorder agent sequence with up/down arrows; Add Agent picker
+```bash
+# 1. Clone and create the database
+git clone https://github.com/yuvanadarsh/forge.git && cd forge
+createdb forge
 
-### Phase 1.75 — Analytics, Pipeline Chat & Provider Vault ✅
+# 2. Configure environment (edit DB_USER, DB_PASSWORD, DB_NAME, SECRET_KEY)
+cp .env.example .env
 
-- [x] **Cost Analytics Graph** — Grouped bar chart on dashboard with provider/model filter chips and metric/timeline dropdowns (recharts)
-- [x] **Pipeline Chat** — Three-panel chat interface at `/pipelines/[id]/chat` with collapsible execution plan, @mention highlighting, and participants sidebar
-- [x] **Dynamic API Key Vault** — User-managed provider list in settings with add/edit/delete (Anthropic is default and cannot be deleted)
-- [x] **Agent Stat Cards** — Lifetime cost, this-month cost, and avg-per-day cards above the token usage graph on agent detail page
+# 3. Run the migrations, in order
+for f in backend/db/migrations/*.sql; do psql -d forge -f "$f"; done
 
-### Phase 1.9 — Final Mock Features ✅
+# 4. Start everything
+docker compose up --build
 
-- [x] **Analytics legend above chart** — Legend moved above the bar chart between filter chips and bars, eliminating label collision
-- [x] **Discord-style @mention picker** — Pipeline chat input shows a floating agent picker filtered by name when user types `@`; arrow keys + Enter to select
-- [x] **Execution plan markdown** — `PipelineExecutionPlan` uses `remark-gfm` for `[ ]` checkboxes (rendered as disabled inputs), bold text, and sized headers
-- [x] **Approval gate UI** — `ApprovalGateCard` appears inline in pipeline chat between phases; supports Approve → (green confirmation) and Request Changes (feedback textarea)
-- [x] **Agent-to-agent messages** — `relay_to_agent_name` field on `PipelineChatMsg` renders a "→ AgentName" relay indicator under the avatar and in the name row
-- [x] **Notification bell** — Amber badge on sidebar showing unread count; dropdown with color-coded activity feed; "Mark all read" clears badge
-- [x] **Agent run history** — Collapsible "RUN HISTORY" section on `/agents/[id]` with timestamp, task name, token/cost stats, success/error badge; error rows have red left border
+# 5. Open http://localhost:3000, add your Anthropic API key in Settings,
+#    then chat with Atlas to build your team
+```
 
-### Phase 2 — Backend Foundation ✅
+The backend seeds **Atlas** (the eternal agent) automatically on startup.
+API health check: <http://localhost:8000/health> · API docs: <http://localhost:8000/docs>
 
-- [x] **Monorepo restructure** — Next.js app moved to `/frontend`, FastAPI backend at `/backend`
-- [x] **FastAPI scaffold** — CORS, lifespan-managed DB engine, `/health`, WebSocket route
-- [x] **Database schema** — 13 tables (agents, pipelines, runs, tasks, conversations, messages, token_usage, logs, memory, notifications…) with pgvector + pgcrypto, plus async SQLAlchemy 2.0 models
-- [x] **Encrypted API key vault** — AES-256-GCM at rest, masked (`••••••••abcd`) in every response
-- [x] **Agents CRUD** — token usage aggregated live from the `token_usage` time series
-- [x] **Settings API** — single-row config incl. the terminal security model (allow/deny lists, strict mode)
-- [x] **Tool registry** — `read_file` / `write_file` / `run_command` / `search_codebase` with workspace containment, command policy gates, 60s timeouts, full audit logging
-- [x] **WebSocket streaming** — per-run socket pushing `token | tool_call | tool_result | status | gate | complete | error` envelopes
-- [x] **Agent executor** — streaming Anthropic tool loop with vector-memory recall (VoyageAI + pgvector), cost tracking, and command approval gates
-- [x] **LangGraph orchestrator** — sequential agent graph with `interrupt()` phase gates, DB-polled resume, completion/failure notifications
-- [x] **Tasks / Conversations / Notifications routers** — full CRUD with filters and pagination
-- [x] **Docker** — `docker compose up --build` runs both services against host Postgres
-- [x] **Typed API client** — `frontend/lib/api.ts` covering every endpoint + `createPipelineSocket()`
+**Port conflicts?** Set `BACKEND_PORT` / `FRONTEND_PORT` in `.env` and re-run
+`docker compose up --build` — no code changes needed.
 
-### Phase 2.5 — Frontend Wiring ✅
-
-- [x] **Global store** — `lib/store.tsx` React Context + useReducer; agents/tasks/pipelines/notifications fetched once on mount, mutations reflect everywhere instantly
-- [x] **Every page on the real API** — dashboard, agents, agent detail, tasks, chat, conversations, pipelines, pipeline chat, settings all read/write through `lib/api.ts` (mock data no longer imported by any page)
-- [x] **Live pipeline chat over WebSocket** — token deltas stream into agent bubbles; tool calls render 🔧 indicator cards updated with results; status/gate/complete/error events drive the UI
-- [x] **Approval gates driven by real run status** — gate cards from persisted `approval_gate` messages and live `gate` events; Approve resumes the LangGraph run, Request Changes posts feedback and keeps the gate open
-- [x] **Agent chat replies** — `POST /messages` runs a single-agent LLM turn (`chat_reply`) and returns the assistant message; optimistic send with pending/thinking states
-- [x] **Analytics on real data** — `GET /api/token-usage` + `GET /api/analytics/cost` aggregate the `token_usage` time series per agent/provider/model/bucket
-- [x] **Key vault UI live** — add/update/delete/test keys against the encrypted vault; Test decrypts and probes the provider API
-- [x] **Security settings UI** — terminal execution mode, strict mode, allowed/denied command lists editable and persisted
-- [x] **Loading / error / empty states** — shared `LoadingSkeleton`, `ErrorState`, `EmptyState` components + dismissible global error banner
-- [x] **Notifications live** — 30s polling, unread badge, mark-read / mark-all-read
-
-### Phase 2.6 — Chat & Agent Improvements ✅
-
-- [x] **Task-linked conversations** — "+ General Chat" on the agent page offers an
-      optional "Link to a task" picker when the agent has tasks; task_id is set at
-      creation time so it shows up under Task Conversations
-- [x] **Workspace folder selector** — pipeline creation offers "New project"
-      (`~/forge-workspace/{title}/`) or an existing folder path; shown on the
-      pipeline card and pipeline chat header
-- [x] **View Conversation from a task** — the task slide-over looks up the
-      conversation linked to the task and links to it, or shows "No conversation yet"
-- [x] **Delete / rename conversations** — a shared "⋯" menu on the agent chat header
-      and each `/chat` row offers Delete (confirmation dialog) and Rename (inline edit)
-
-### Phase 2.7 — UI Bug Fixes & Small Features ✅
-
-- [x] **Z-index audit** — consistent layering across the app: toasts z-50,
-      modals/overlays z-40, dropdown menus z-30, slide-over panels z-20, sidebar z-10,
-      pipeline execution plan panel z-10
-- [x] **Escape key closes modals** — every modal/panel (Create Agent, Create Task,
-      Create Pipeline, Add Provider, Task slide-over, Confirm dialog) closes on Escape
-- [x] **Delete agent** — hover "⋯" menu on agent cards (dashboard + `/agents`) with
-      View/Delete; blocked with a clear error if the agent has active pipeline runs
-- [x] **Delete task** — hover "✕" button on task cards with confirmation
-- [x] **Model dropdown in Create Agent** — populated from configured API keys,
-      grouped by provider, with a helpful empty state pointing at Settings
-- [x] **Auto-clean empty conversations** — creating a new general chat for an agent
-      deletes that agent's other empty (no messages, no task) general chats
-- [x] **Strict Mode toggle fix** — corrected the toggle knob's track sizing so it no
-      longer overflows its container
-
-### Phase 3 — Real Agent Execution & Pipeline Testing ⬜ (next session)
-
-- [ ] End-to-end pipeline runs with a real Anthropic key (streamed tokens, live gates)
-- [ ] Task "Run →" button triggers agent execution
-
-### Phase 4 — Hardening ⬜
-
-- [ ] Drag-and-drop kanban
-- [ ] Multi-provider LLM routing (OpenAI, Gemini)
-- [ ] Authentication
-- [ ] Cloud deployment
-
----
-
-## Architecture
+## How it works
 
 ```
 ┌──────────────────────────┐         ┌───────────────────────────────────────┐
@@ -147,9 +87,11 @@
                                      │                  │                    │
                                      │                  ▼                    │
                                      │   agent_executor ──▶ Anthropic API    │
+                                     │     │  ├─ cost ceilings (every call)  │
                                      │     │  ├─ tool_registry (read/write/  │
-                                     │     │  │   run_command/search — all   │
-                                     │     │  │   confined to workspace)     │
+                                     │     │  │   run_command/search/        │
+                                     │     │  │   create_agent — confined    │
+                                     │     │  │   to the pipeline workspace) │
                                      │     │  └─ streaming_manager ──▶ WS    │
                                      │     └─ memory_service ──▶ VoyageAI    │
                                      └──────────────────┬────────────────────┘
@@ -161,156 +103,45 @@
                                      └───────────────────────────────────────┘
 ```
 
-Agents execute pipelines sequentially; human approval gates pause the graph
-(`pipeline_runs.status = paused_for_approval`) until approved in the pipeline chat.
-Every file access and command is audit-logged and confined to the pipeline's workspace.
+1. **Create a pipeline** — describe the project; the CEO agent drafts the
+   execution plan, or picks the whole team for you with auto-suggest (Atlas
+   creates any missing agents first).
+2. **Approve it** — nothing runs until you say so.
+3. **Agents execute in sequence** — each with memory recall, sandboxed file and
+   command tools, and output streamed live into the pipeline chat.
+4. **Gates pause execution** — phase boundaries and reviewable commands wait
+   for your approval; cost ceilings stop runaways automatically.
+5. **Everything is audited** — every file access, command, token, and dollar
+   lands in Postgres, on your machine.
 
----
+Prefer something smaller? Create a **task**, assign an agent, and hit **Run →**
+for a single-agent execution — same tools, same audit trail, no pipeline.
 
 ## Tech Stack
 
 | Layer | Tech |
 |---|---|
-| Frontend | Next.js 16 (App Router), TypeScript (strict), Tailwind CSS v4, Geist |
-| Charts / Markdown | recharts · react-markdown + rehype-highlight + remark-gfm |
+| Frontend | Next.js 16 (App Router), TypeScript (strict), Tailwind CSS, Geist |
 | Backend | FastAPI (Python 3.11), async SQLAlchemy 2.0, asyncpg |
 | Orchestration | LangGraph (state graph, checkpointed interrupts) |
 | LLM / Embeddings | Anthropic SDK · VoyageAI (voyage-3, 1024-dim) |
 | Database | PostgreSQL on host with pgvector + pgcrypto |
-| Security | AES-256-GCM key vault, workspace path containment, command allow/deny lists |
+| Security | AES-256-GCM key vault, workspace containment, command allow/deny lists |
 | Ops | Docker Compose (backend + frontend; DB stays on host) |
 
-No UI component library — everything built from scratch with Tailwind.
+## Screenshots
 
----
+<!-- Add screenshots to docs/screenshots/ and update the paths below. -->
 
-## Running Locally
+![Dashboard](docs/screenshots/dashboard.png)
+![Pipeline chat with approval gate](docs/screenshots/pipeline-chat.png)
+![Atlas creating an agent](docs/screenshots/atlas.png)
 
-**Prerequisites:** PostgreSQL running on the host with pgvector extension
-(`brew install postgresql` then `brew install pgvector` on macOS).
-Docker Desktop must be running.
+## Contributing
 
-1. Clone the repo:
-   ```bash
-   git clone https://github.com/yuvanadarsh/forge.git
-   cd forge
-   ```
+See [CONTRIBUTING.md](CONTRIBUTING.md) — dev setup, branch conventions, commit
+format, and how to add agent presets or LLM providers.
 
-2. Copy and fill in environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-   Fill in `.env`:
-   - `DB_USER` / `DB_PASSWORD` / `DB_NAME` — your local Postgres credentials
-   - `SECRET_KEY` — generate with `openssl rand -hex 32`
-   - `VOYAGE_API_KEY` — optional, memory search degrades gracefully without it
+## License
 
-3. Create the database and run the migration:
-   ```bash
-   psql -U your_user -c "CREATE DATABASE forge;"
-   psql -U your_user -d forge -f backend/db/migrations/001_initial.sql
-   ```
-
-4. Start everything:
-   ```bash
-   docker compose up --build
-   ```
-   Hot reload is enabled — code changes on your machine reflect
-   inside the containers instantly without restarting.
-
-5. Open [http://localhost:3000](http://localhost:3000)
-   Go to **Settings → API Keys** and add your Anthropic API key.
-
-API health check: [http://localhost:8000/health](http://localhost:8000/health)
-API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
-
-### Port Conflicts
-If ports 8000 or 3000 are already in use by another project,
-add these to your `.env` file before running:
-
-```
-BACKEND_PORT=8001   # or any free port
-FRONTEND_PORT=3001  # or any free port
-```
-
-Then run `docker compose up --build` as normal.
-No code changes needed.
-
----
-
-## Project Structure
-
-```
-backend/
-  main.py                     FastAPI entry point (CORS, lifespan, /health, /ws)
-  routers/                    agents · pipelines · tasks · conversations · settings · notifications
-  services/
-    orchestrator.py           LangGraph pipeline runner with approval-gate interrupts
-    agent_executor.py         Streaming Anthropic tool loop + cost/memory bookkeeping
-    tool_registry.py          read_file / write_file / run_command / search_codebase
-    memory_service.py         VoyageAI embeddings + pgvector similarity search
-    streaming.py              Per-run WebSocket manager (typed event envelopes)
-    crypto.py                 AES-256-GCM API key encryption
-  db/
-    connection.py             Async engine, session factory, get_db dependency
-    models.py                 SQLAlchemy 2.0 models (13 tables)
-    migrations/001_initial.sql
-  requirements.txt · Dockerfile
-docker-compose.yml            backend + frontend, host Postgres via host.docker.internal
-
-frontend/app/
-  page.tsx                    Dashboard (/ — agent grid + kanban + cost analytics graph)
-  layout.tsx                  Root layout + sidebar
-  agents/page.tsx             Agent registry
-  agents/[id]/page.tsx        Agent detail (stat cards + editable system prompt + token graph)
-  agents/[id]/conversations/[convId]/page.tsx  Chat window (markdown rendering)
-  chat/page.tsx               Global chat (single-row density layout)
-  pipelines/page.tsx          Pipelines list with status badges
-  pipelines/[id]/chat/page.tsx  Three-panel pipeline chat (plan | chat | participants)
-  tasks/page.tsx              Tasks kanban (move-to + slide-over)
-  settings/page.tsx           Settings (dynamic provider vault, embeddings, export)
-frontend/components/
-  Sidebar.tsx                 Fixed left navigation
-  AgentCard.tsx               Gradient-border agent card (equal height)
-  AgentStatCards.tsx          Lifetime/monthly/daily cost stat cards
-  TaskCard.tsx                Kanban task card (move-to dropdown)
-  TaskSlideOver.tsx           Task detail slide-over panel
-  TokenUsageGraph.tsx         Recharts bar chart with interval toggle
-  CostAnalyticsGraph.tsx      State/filter wrapper for dashboard analytics
-  CostAnalyticsChart.tsx      Recharts grouped bar chart for cost analytics
-  PipelineChatMessage.tsx     Message bubble with @mention highlighting
-  PipelineChatInput.tsx       Textarea + send button for pipeline chat
-  PipelineExecutionPlan.tsx   Collapsible left panel with markdown plan
-  PipelineParticipants.tsx    Right sidebar with participant status dots
-  ProviderRow.tsx             Single API provider row with inline edit/delete
-  AddProviderModal.tsx        Modal for adding a new API provider
-  EmbeddingsSection.tsx       Embeddings config section (settings)
-  ExportSection.tsx           Export data section (settings)
-  Toast.tsx                   Fade toast notification
-  CreateAgentModal.tsx        New agent form (role presets)
-  CreateTaskModal.tsx         New task form
-frontend/lib/
-  api.ts                      Typed client for every backend endpoint + WebSocket factory
-  store.tsx                   Global React Context store (agents/tasks/pipelines/notifications)
-  mock-data.ts                Mock-phase data — kept as reference only, no page imports it
-  analytics-mock-data.ts      Mock-phase analytics data (reference only)
-frontend/types/
-  index.ts                    Mock-phase interfaces + Phase 2 backend wire types
-```
-
----
-
-## Design System
-
-| Token | Value |
-|---|---|
-| Background | `#0a0a0a` |
-| Card background | `#111111` |
-| Card border | `#1f1f1f` |
-| Accent (amber) | `#f59e0b` |
-| Success | `#22c55e` |
-| Error | `#ef4444` |
-| Text primary | `#f5f5f5` |
-| Text muted | `#71717a` |
-| Border radius (cards) | `12px` |
-| Transitions | `150ms ease` |
+[MIT](LICENSE)

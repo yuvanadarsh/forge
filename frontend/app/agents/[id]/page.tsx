@@ -155,7 +155,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
     { idle: "#71717a", working: "#22c55e", error: "#ef4444" }[agent.status] ?? "#71717a";
   const statusLabel = { idle: "Idle", working: "Working", error: "Error" }[agent.status] ?? agent.status;
 
-  const pair = RING_COLORS[agent.avatar_color] ?? [agent.avatar_color, agent.avatar_color];
+  // Eternal agents (Atlas) always wear the amber ring, matching AgentCard.
+  const pair: [string, string] = agent.is_eternal
+    ? ["#f59e0b", "#f97316"]
+    : (RING_COLORS[agent.avatar_color] ?? [agent.avatar_color, agent.avatar_color]);
   const gradient = `linear-gradient(to right, ${pair[0]}, ${pair[1]})`;
 
   function startEdit() {
@@ -235,7 +238,11 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#71717a" }}>
             System Prompt
           </h2>
-          {!editingPrompt ? (
+          {agent.is_eternal ? (
+            <span className="text-xs flex items-center gap-1.5" style={{ color: "#f59e0b" }}>
+              ⚡ {`${agent.name} is Forge's eternal agent. Its configuration is permanent.`}
+            </span>
+          ) : !editingPrompt ? (
             <button
               onClick={startEdit}
               disabled={saveState === "saving"}

@@ -62,6 +62,9 @@ export type ForgeAction =
   | { type: "UPDATE_TASK"; task: BackendTask }
   | { type: "DELETE_TASK"; taskId: string }
   | { type: "ADD_PIPELINE"; pipeline: BackendPipeline }
+  | { type: "UPDATE_PIPELINE"; pipeline: BackendPipeline }
+  | { type: "ARCHIVE_PIPELINE"; pipeline: BackendPipeline }
+  | { type: "DELETE_PIPELINE"; pipelineId: string }
   | { type: "MARK_NOTIFICATION_READ"; notificationId: string }
   | { type: "MARK_ALL_NOTIFICATIONS_READ" }
   | { type: "SET_LOADING"; key: keyof ForgeState["loading"]; value: boolean }
@@ -113,8 +116,13 @@ function forgeReducer(state: ForgeState, action: ForgeAction): ForgeState {
         ...state,
         agents: state.agents.map((a) => (a.id === action.agent.id ? action.agent : a)),
       };
-    case "DELETE_AGENT":
+    case "DELETE_AGENT": {
+      // Eternal agents (Atlas) never leave the roster — the backend 403s the
+      // DELETE, and this guard keeps an optimistic dispatch from lying to the UI.
+      const target = state.agents.find((a) => a.id === action.agentId);
+      if (target?.is_eternal) return state;
       return { ...state, agents: state.agents.filter((a) => a.id !== action.agentId) };
+    }
     case "ADD_TASK":
       return { ...state, tasks: [action.task, ...state.tasks] };
     case "UPDATE_TASK":
@@ -126,6 +134,19 @@ function forgeReducer(state: ForgeState, action: ForgeAction): ForgeState {
       return { ...state, tasks: state.tasks.filter((t) => t.id !== action.taskId) };
     case "ADD_PIPELINE":
       return { ...state, pipelines: [action.pipeline, ...state.pipelines] };
+    case "UPDATE_PIPELINE":
+    case "ARCHIVE_PIPELINE":
+      return {
+        ...state,
+        pipelines: state.pipelines.map((p) =>
+          p.id === action.pipeline.id ? action.pipeline : p,
+        ),
+      };
+    case "DELETE_PIPELINE":
+      return {
+        ...state,
+        pipelines: state.pipelines.filter((p) => p.id !== action.pipelineId),
+      };
     case "MARK_NOTIFICATION_READ":
       return {
         ...state,
