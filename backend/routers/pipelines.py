@@ -172,6 +172,11 @@ async def approve_pipeline(pipeline_id: uuid.UUID, db: AsyncSession = Depends(ge
         raise HTTPException(
             status_code=409, detail=f"Pipeline is {pipeline.status} — cannot start a new run"
         )
+    if not pipeline.agent_sequence or not pipeline.plan_md.strip():
+        raise HTTPException(
+            status_code=409,
+            detail="Cannot approve — the execution plan is still generating. Wait for the CEO to finish before approving.",
+        )
 
     pipeline.status = "approved"
     pipeline.approved_at = datetime.now(timezone.utc)
