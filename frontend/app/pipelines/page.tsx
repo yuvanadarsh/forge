@@ -261,13 +261,21 @@ function PipelineCard({
               <MarkdownBlock content={pipeline.plan_md || "*No execution plan provided.*"} />
             </>
           )}
-          {pipeline.status === "pending_approval" && (
+          {pipeline.status === "pending_approval" && (() => {
+            const planNotReady =
+              generating || !pipeline.plan_md.trim() || pipeline.agent_sequence.length === 0;
+            return (
             <div className="mt-6 flex gap-3">
               <button
                 onClick={onApprove}
-                disabled={approving}
+                disabled={approving || planNotReady}
+                title={planNotReady ? "Waiting for execution plan…" : undefined}
                 className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
-                style={{ background: "#22c55e", color: "#0a0a0a" }}
+                style={{
+                  background: approving || planNotReady ? "#1f1f1f" : "#22c55e",
+                  color: approving || planNotReady ? "#71717a" : "#0a0a0a",
+                  cursor: planNotReady ? "not-allowed" : undefined,
+                }}
               >
                 {approving ? "Starting…" : "Approve Pipeline"}
               </button>
@@ -279,7 +287,8 @@ function PipelineCard({
                 Request Changes
               </button>
             </div>
-          )}
+            );
+          })()}
         </div>
       )}
 
