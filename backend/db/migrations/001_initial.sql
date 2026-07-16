@@ -15,6 +15,7 @@ CREATE TABLE agents (
     system_prompt TEXT NOT NULL DEFAULT '',
     status        TEXT NOT NULL DEFAULT 'idle'
                   CHECK (status IN ('idle', 'working', 'error')),
+    is_eternal    BOOLEAN NOT NULL DEFAULT false,  -- ships with Forge, cannot be deleted (Atlas)
     last_active   TIMESTAMPTZ,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );

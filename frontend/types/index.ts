@@ -7,6 +7,8 @@ export interface Agent {
   model: string;
   system_prompt: string;
   status: "idle" | "working" | "error";
+  /** Eternal agents ship with Forge and cannot be deleted (e.g. Atlas). */
+  is_eternal?: boolean;
   last_active: string;
   tokens_used: number;
   cost_usd: number;
@@ -74,6 +76,7 @@ export interface Provider {
 
 export interface BackendAgent extends Omit<Agent, "last_active"> {
   last_active: string | null;
+  is_eternal: boolean;
 }
 
 export interface AgentUsageSummary {

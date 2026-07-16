@@ -113,8 +113,13 @@ function forgeReducer(state: ForgeState, action: ForgeAction): ForgeState {
         ...state,
         agents: state.agents.map((a) => (a.id === action.agent.id ? action.agent : a)),
       };
-    case "DELETE_AGENT":
+    case "DELETE_AGENT": {
+      // Eternal agents (Atlas) never leave the roster — the backend 403s the
+      // DELETE, and this guard keeps an optimistic dispatch from lying to the UI.
+      const target = state.agents.find((a) => a.id === action.agentId);
+      if (target?.is_eternal) return state;
       return { ...state, agents: state.agents.filter((a) => a.id !== action.agentId) };
+    }
     case "ADD_TASK":
       return { ...state, tasks: [action.task, ...state.tasks] };
     case "UPDATE_TASK":

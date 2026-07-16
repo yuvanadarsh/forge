@@ -4,16 +4,19 @@ Serves the REST API under /api, a health check at /health, and the
 per-pipeline-run WebSocket stream at /ws/pipeline/{pipeline_run_id}.
 """
 
+import logging
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 load_dotenv()
 
-from db.connection import dispose_engine, init_engine  # noqa: E402
+from db.connection import dispose_engine, get_session_factory, init_engine  # noqa: E402
 from routers import (  # noqa: E402
     agents,
     analytics,
@@ -25,6 +28,25 @@ from routers import (  # noqa: E402
 )
 from services.streaming import streaming_manager  # noqa: E402
 
+logger = logging.getLogger(__name__)
+
+# Resolved against this file so the seed runs regardless of the process CWD
+# (uvicorn from repo root, Docker WORKDIR, etc).
+SEEDS_DIR = Path(__file__).resolve().parent / "db" / "seeds"
+
+
+async def run_seeds() -> None:
+    """Apply idempotent seed files (eternal agents) on every startup.
+
+    Each seed file must hold exactly one statement — asyncpg rejects
+    multi-statement strings in a single execute.
+    """
+    factory = get_session_factory()
+    async with factory() as db:
+        for seed_file in sorted(SEEDS_DIR.glob("*.sql")):
+            await db.execute(text(seed_file.read_text()))
+        await db.commit()
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -32,6 +54,16 @@ async def lifespan(app: FastAPI):
     # A missing/down database logs a loud warning instead of crashing so
     # /health stays available while the DB is being provisioned.
     await init_engine()
+    try:
+        await run_seeds()
+    except Exception as exc:
+        # Non-fatal, same philosophy as init_engine: keep /health up. The
+        # usual cause is unapplied migrations (is_eternal column missing).
+        logger.warning(
+            "Startup seeds failed (%s). Apply backend/db/migrations/ in order "
+            "and restart to seed the eternal agents.",
+            exc,
+        )
     yield
     await dispose_engine()
 

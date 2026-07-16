@@ -44,6 +44,7 @@ class Agent(Base):
     model: Mapped[str] = mapped_column(Text, server_default=text("'claude-sonnet-4-5'"))
     system_prompt: Mapped[str] = mapped_column(Text, server_default=text("''"))
     status: Mapped[str] = mapped_column(Text, server_default=text("'idle'"))
+    is_eternal: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
     last_active: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
