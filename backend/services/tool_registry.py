@@ -38,9 +38,18 @@ class NeedsApprovalError(Exception):
 
 
 def _resolve_safe(path: str, workspace_path: str) -> Path:
-    """Resolve path inside the workspace; raise ToolError on escape."""
+    """Resolve path inside the workspace; raise ToolError on escape.
+
+    Agents sometimes pass a path already prefixed with the workspace's own
+    folder name (e.g. 'my-project/todo.py' against a workspace_path that
+    already ends in '.../my-project'), which would otherwise double-nest
+    into '.../my-project/my-project/todo.py'. Strip that redundant leading
+    segment before joining.
+    """
     workspace = Path(workspace_path).expanduser().resolve()
     candidate = Path(path)
+    if not candidate.is_absolute() and candidate.parts and candidate.parts[0] == workspace.name:
+        candidate = Path(*candidate.parts[1:]) if len(candidate.parts) > 1 else Path(".")
     target = (candidate if candidate.is_absolute() else workspace / candidate).resolve()
     if target != workspace and not target.is_relative_to(workspace):
         raise ToolError(f"Path '{path}' escapes the workspace — access denied")
