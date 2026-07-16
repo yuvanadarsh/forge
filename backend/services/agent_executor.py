@@ -456,20 +456,27 @@ CHAT_MAX_OUTPUT_TOKENS = 4096
 CHAT_MAX_TOOL_ITERATIONS = 5  # Atlas creating a handful of agents per turn is plenty
 
 
-async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
+async def chat_reply(
+    conversation_id: uuid.UUID, agent_id: uuid.UUID | None = None
+) -> Message | None:
     """Basic single-agent chat turn: one non-streaming completion, no tools.
 
-    Used by POST /conversations/{id}/messages for agent conversations (not
-    pipeline runs). Persists the assistant Message + TokenUsage and returns
-    the message; returns None for pipeline-level conversations. Raises
-    ExecutionError when no Anthropic key is configured.
+    Used by POST /conversations/{id}/messages. For agent conversations the
+    replying agent is the conversation's agent; pipeline-level conversations
+    (agent_id null) only reply when an explicit `agent_id` override is passed
+    — the router picks it from the @mention or the last agent who spoke.
+    Persists the assistant Message + TokenUsage and returns the message.
+    Raises ExecutionError when no Anthropic key is configured.
     """
     session_factory = get_session_factory()
     async with session_factory() as db:
         conversation = await db.get(Conversation, conversation_id)
-        if conversation is None or conversation.agent_id is None:
+        if conversation is None:
             return None
-        agent = await db.get(Agent, conversation.agent_id)
+        target_agent_id = agent_id or conversation.agent_id
+        if target_agent_id is None:
+            return None
+        agent = await db.get(Agent, target_agent_id)
         if agent is None:
             return None
         settings = (await db.execute(select(Settings))).scalar_one_or_none()

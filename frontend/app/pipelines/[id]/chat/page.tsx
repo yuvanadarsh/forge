@@ -48,14 +48,6 @@ type LiveItem =
 let liveIdCounter = 0;
 const nextLiveId = () => `live-${++liveIdCounter}`;
 
-function formatRunTimestamp(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  const datePart = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const timePart = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
-  return `${datePart} at ${timePart}`;
-}
-
 export default function PipelineChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { state } = useForge();
@@ -269,7 +261,12 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         setConversationId(convId);
       }
       const result = await sendMessage(convId, text);
-      setMessages((prev) => [...prev, result.user_message]);
+      setMessages((prev) => [
+        ...prev,
+        result.user_message,
+        ...(result.assistant_message ? [result.assistant_message] : []),
+      ]);
+      if (result.error) setToast(result.error);
     } catch (err) {
       setToast(`Send failed: ${err instanceof Error ? err.message : "backend unreachable"}`);
     }
@@ -308,6 +305,23 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   const displayStatus = liveStatus ?? pipeline.status;
   const s = STATUS_STYLES[displayStatus] ?? STATUS_STYLES.completed;
   const runIsActive = run !== null && liveStatus !== null && ACTIVE_RUN_STATUSES.includes(liveStatus as PipelineRun["status"]);
+
+  // A finished pipeline is a living project — chat stays open so the user can
+  // keep working with the agents. Running keeps it closed (agents are busy).
+  const inputEnabled =
+    displayStatus === "completed" ||
+    displayStatus === "failed" ||
+    displayStatus === "paused_for_approval";
+  const inputPlaceholder =
+    displayStatus === "completed"
+      ? "Continue working with your agents... (use @AgentName)"
+      : displayStatus === "failed"
+        ? "Ask your agents what went wrong... (use @AgentName)"
+        : displayStatus === "running"
+          ? "Agents are working — wait for this run to finish"
+          : displayStatus === "paused_for_approval"
+            ? undefined
+            : "Start the pipeline to send messages";
 
   const historyMsgs: PipelineChatMsg[] = messages
     .filter((m) => m.role === "user" || m.role === "assistant" || m.role === "approval_gate")
@@ -372,8 +386,8 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           </div>
         </div>
 
-        {/* Pipeline-not-running notice */}
-        {displayStatus !== "running" && (
+        {/* Pipeline-not-running notice — only for idle states where chat is closed */}
+        {!inputEnabled && displayStatus !== "running" && (
           <div
             className="mx-6 mt-3 px-4 py-2 rounded-lg text-xs shrink-0"
             style={{ background: "#141414", color: "#71717a", border: "1px solid #2a2a2a" }}
@@ -481,30 +495,6 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           <div ref={bottomRef} />
         </div>
 
-        {/* Finished-run status bar */}
-        {!runIsActive && (displayStatus === "completed" || displayStatus === "failed") && (
-          <div
-            className="mx-6 mb-3 px-4 py-3 rounded-xl border flex items-center justify-between gap-3 shrink-0"
-            style={{ background: "#141414", borderColor: "#2a2a2a" }}
-          >
-            <span className="flex items-center gap-2 text-xs" style={{ color: "#71717a" }}>
-              <span style={{ color: displayStatus === "completed" ? "#22c55e" : "#ef4444" }}>
-                {displayStatus === "completed" ? "✓" : "✕"}
-              </span>
-              {displayStatus === "completed" ? "Run completed" : "Run failed"}
-              {run?.completed_at && <span>· {formatRunTimestamp(run.completed_at)}</span>}
-            </span>
-            <button
-              onClick={handleApproveAndStart}
-              disabled={approving}
-              className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors duration-150 shrink-0"
-              style={{ background: "#f59e0b", color: "#0a0a0a" }}
-            >
-              {approving ? "Starting…" : displayStatus === "completed" ? "Run Again →" : "Retry →"}
-            </button>
-          </div>
-        )}
-
         {/* Not-running banner (no run started yet) */}
         {!runIsActive && displayStatus !== "completed" && displayStatus !== "failed" && (
           <div
@@ -525,21 +515,15 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           </div>
         )}
 
-        {/* Input */}
-        {displayStatus !== "completed" && displayStatus !== "failed" && (
-          <PipelineChatInput
-            value={input}
-            onChange={setInput}
-            onSend={handleSend}
-            participants={participants}
-            disabled={displayStatus !== "running" && displayStatus !== "paused_for_approval"}
-            placeholder={
-              displayStatus !== "running" && displayStatus !== "paused_for_approval"
-                ? "Start the pipeline to send messages"
-                : undefined
-            }
-          />
-        )}
+        {/* Input — a finished pipeline stays chattable: it's a living project */}
+        <PipelineChatInput
+          value={input}
+          onChange={setInput}
+          onSend={handleSend}
+          participants={participants}
+          disabled={!inputEnabled}
+          placeholder={inputPlaceholder}
+        />
       </div>
 
       {/* Right panel — participants */}

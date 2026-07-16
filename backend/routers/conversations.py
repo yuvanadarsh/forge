@@ -11,7 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.connection import get_db
-from db.models import Conversation, Message
+from db.models import Agent, Conversation, Message, Pipeline
 from services.agent_executor import ExecutionError, chat_reply
 
 logger = logging.getLogger(__name__)
@@ -85,6 +85,55 @@ async def _get_conversation_or_404(conversation_id: uuid.UUID, db: AsyncSession)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
+
+
+async def _pipeline_reply_agent(
+    conversation: Conversation, content: str, db: AsyncSession
+) -> uuid.UUID | None:
+    """Pick the agent that should answer a pipeline conversation message.
+
+    Only finished pipelines (completed/failed) chat here — while a run is
+    active, traffic flows through the orchestrator + WebSocket instead.
+    The @mentioned participant wins (earliest mention in the message);
+    otherwise the last agent who spoke; otherwise the last agent in the
+    sequence.
+    """
+    if conversation.pipeline_id is None:
+        return None
+    pipeline = await db.get(Pipeline, conversation.pipeline_id)
+    if pipeline is None or pipeline.status not in ("completed", "failed"):
+        return None
+    sequence = pipeline.agent_sequence or []
+    if not sequence:
+        return None
+
+    agents = (
+        await db.execute(select(Agent).where(Agent.id.in_(sequence)))
+    ).scalars().all()
+    lowered = content.lower()
+    mentioned: tuple[int, uuid.UUID] | None = None
+    for agent in agents:
+        pos = lowered.find(f"@{agent.name.lower()}")
+        if pos != -1 and (mentioned is None or pos < mentioned[0]):
+            mentioned = (pos, agent.id)
+    if mentioned is not None:
+        return mentioned[1]
+
+    last_speaker = (
+        await db.execute(
+            select(Message.agent_id)
+            .where(
+                Message.conversation_id == conversation.id,
+                Message.role == "assistant",
+                Message.agent_id.is_not(None),
+            )
+            .order_by(Message.created_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if last_speaker is not None:
+        return last_speaker
+    return sequence[-1]
 
 
 @router.get("", response_model=list[ConversationOut])
@@ -172,23 +221,28 @@ async def add_user_message(
 ) -> SendMessageOut:
     """Persist the user message; for agent conversations, also run one LLM
     turn (chat_reply) and return the assistant message. Pipeline-level
-    conversations (agent_id null) never auto-reply here — their traffic
-    flows through the orchestrator + WebSocket."""
+    conversations (agent_id null) auto-reply only once the pipeline is
+    finished (completed/failed) — the @mentioned agent answers, else the
+    last agent who spoke. While a run is active their traffic flows
+    through the orchestrator + WebSocket instead."""
     conversation = await _get_conversation_or_404(conversation_id, db)
     message = Message(conversation_id=conversation_id, role="user", content=body.content)
     db.add(message)
     conversation.last_message = body.content[:300]
     conversation.last_active = datetime.now(timezone.utc)
     is_agent_conversation = conversation.agent_id is not None
+    pipeline_agent_id: uuid.UUID | None = None
+    if not is_agent_conversation:
+        pipeline_agent_id = await _pipeline_reply_agent(conversation, body.content, db)
     await db.commit()
     await db.refresh(message)
     user_out = MessageOut.model_validate(message)
 
     assistant_out: MessageOut | None = None
     error: str | None = None
-    if is_agent_conversation:
+    if is_agent_conversation or pipeline_agent_id is not None:
         try:
-            reply = await chat_reply(conversation_id)
+            reply = await chat_reply(conversation_id, agent_id=pipeline_agent_id)
             if reply is not None:
                 assistant_out = MessageOut.model_validate(reply)
         except ExecutionError as exc:
