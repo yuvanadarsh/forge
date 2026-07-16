@@ -47,6 +47,10 @@ CREATE TABLE settings (
     embedding_model    TEXT NOT NULL DEFAULT 'voyage-3',
     workspace_root     TEXT NOT NULL DEFAULT '~/forge-workspace',
     global_rules       TEXT NOT NULL DEFAULT '',   -- injected into every agent system prompt
+    -- Cost protection: the executor stops agents once any ceiling is crossed
+    max_run_cost       NUMERIC(8,2) NOT NULL DEFAULT 5.00,   -- max $ per pipeline run
+    max_agent_cost     NUMERIC(8,2) NOT NULL DEFAULT 2.00,   -- max $ per agent per run
+    max_daily_cost     NUMERIC(8,2) NOT NULL DEFAULT 20.00,  -- max $ across all runs per day
     updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

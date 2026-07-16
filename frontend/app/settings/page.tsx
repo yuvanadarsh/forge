@@ -41,6 +41,12 @@ interface SecurityDraft {
   denied_commands: string;
 }
 
+interface CostDraft {
+  max_run_cost: string; // kept as strings while editing number inputs
+  max_agent_cost: string;
+  max_daily_cost: string;
+}
+
 function toRow(key: ApiKeyInfo): ProviderRowData {
   return {
     id: key.id,
@@ -59,6 +65,8 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<ForgeSettings | null>(null);
   const [security, setSecurity] = useState<SecurityDraft | null>(null);
   const [savingSecurity, setSavingSecurity] = useState(false);
+  const [cost, setCost] = useState<CostDraft | null>(null);
+  const [savingCost, setSavingCost] = useState(false);
   const [showAddProvider, setShowAddProvider] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -80,6 +88,11 @@ export default function SettingsPage() {
           strict_mode: s.strict_mode,
           allowed_commands: s.allowed_commands.join("\n"),
           denied_commands: s.denied_commands.join("\n"),
+        });
+        setCost({
+          max_run_cost: String(s.max_run_cost),
+          max_agent_cost: String(s.max_agent_cost),
+          max_daily_cost: String(s.max_daily_cost),
         });
       })
       .catch(() => setToast("Could not load settings — is the backend running?"));
@@ -161,6 +174,35 @@ export default function SettingsPage() {
       setToast(`Could not save settings: ${err instanceof Error ? err.message : "unknown error"}`);
     } finally {
       setSavingSecurity(false);
+    }
+  }
+
+  async function saveCost() {
+    if (!cost || savingCost) return;
+    const parsed = {
+      max_run_cost: Number(cost.max_run_cost),
+      max_agent_cost: Number(cost.max_agent_cost),
+      max_daily_cost: Number(cost.max_daily_cost),
+    };
+    if (Object.values(parsed).some((v) => !Number.isFinite(v) || v < 0)) {
+      setToast("Cost limits must be zero or positive numbers");
+      return;
+    }
+    setSavingCost(true);
+    try {
+      const updated = await updateSettings(parsed);
+      setSettings(updated);
+      dispatch({ type: "SET_SETTINGS", settings: updated });
+      setCost({
+        max_run_cost: String(updated.max_run_cost),
+        max_agent_cost: String(updated.max_agent_cost),
+        max_daily_cost: String(updated.max_daily_cost),
+      });
+      setToast("Cost protection saved");
+    } catch (err) {
+      setToast(`Could not save limits: ${err instanceof Error ? err.message : "unknown error"}`);
+    } finally {
+      setSavingCost(false);
     }
   }
 
@@ -315,13 +357,66 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Section 3: Embeddings */}
+      {/* Section 3: Cost Protection */}
+      <div className={card} style={cardSt}>
+        <SectionHeader
+          title="Cost Protection"
+          subtitle="Hard spending ceilings enforced before every LLM call"
+        />
+        {cost === null ? (
+          <LoadingSkeleton variant="text" count={2} />
+        ) : (
+          <div className="space-y-5">
+            <div className="grid grid-cols-3 gap-4">
+              {(
+                [
+                  { key: "max_run_cost", label: "Max cost per run ($)" },
+                  { key: "max_agent_cost", label: "Max cost per agent ($)" },
+                  { key: "max_daily_cost", label: "Max daily spend ($)" },
+                ] as const
+              ).map(({ key, label }) => (
+                <div key={key}>
+                  <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
+                    {label}
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.5"
+                    value={cost[key]}
+                    onChange={(e) => setCost({ ...cost, [key]: e.target.value })}
+                    className="w-full px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
+                    style={inputSt}
+                    onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
+                    onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+                  />
+                </div>
+              ))}
+            </div>
+            <p className="text-xs flex items-center gap-1.5" style={{ color: "#f59e0b" }}>
+              ⚠️ Agents that exceed these limits will be stopped automatically
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={saveCost}
+                disabled={savingCost}
+                className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
+                style={{ background: savingCost ? "#2a2a2a" : "#f59e0b", color: savingCost ? "#3f3f46" : "#0a0a0a" }}
+              >
+                {savingCost ? "Saving…" : "Save Cost Limits"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Section 4: Embeddings */}
       <div className={card} style={cardSt}>
         <SectionHeader title="Embeddings" />
         <EmbeddingsSection embeddingModel={settings?.embedding_model ?? null} showToast={setToast} />
       </div>
 
-      {/* Section 4: Export Data */}
+      {/* Section 5: Export Data */}
       <div className={card} style={cardSt}>
         <SectionHeader title="Export Data" subtitle="Download all your data as formatted JSON files" />
         <ExportSection showToast={setToast} />

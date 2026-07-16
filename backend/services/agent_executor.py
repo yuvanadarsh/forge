@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from anthropic import AsyncAnthropic
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.connection import get_session_factory
@@ -173,6 +173,14 @@ class ExecutionError(Exception):
     """Agent execution failed in a way the pipeline should surface."""
 
 
+class CostLimitExceeded(ExecutionError):
+    """A configured cost ceiling was crossed — the run must stop.
+
+    Subclasses ExecutionError so the orchestrator's failure path (run status
+    'failed', error streamed, notification created) applies unchanged.
+    """
+
+
 @dataclass
 class AgentOutput:
     content: str
@@ -250,6 +258,69 @@ def _build_system_prompt(
         memory_lines = "\n".join(f"- {m.content[:500]}" for m in memories)
         parts.append(f"## Relevant context from your past work\n{memory_lines}")
     return "\n\n".join(parts)
+
+
+async def _check_cost_limits(
+    agent: Agent,
+    pipeline_run_id: uuid.UUID | None,
+    settings: Settings,
+    in_flight: float = 0.0,
+) -> None:
+    """Raise CostLimitExceeded before an LLM call once any ceiling is crossed.
+
+    `in_flight` is the current agent execution's not-yet-persisted spend, so
+    a runaway tool loop is stopped mid-agent, not just at agent boundaries.
+    Limits are re-read from the DB each call so raising a ceiling in Settings
+    takes effect immediately, even mid-run. The daily total spans ALL
+    token_usage (runs, task runs, chat, planning) — it protects the budget,
+    not a bookkeeping category.
+    """
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        fresh = (await db.execute(select(Settings))).scalar_one_or_none()
+        limits = fresh if fresh is not None else settings
+
+        daily = (
+            await db.execute(
+                select(func.coalesce(func.sum(TokenUsage.cost_usd), 0)).where(
+                    TokenUsage.recorded_at >= func.date_trunc("day", func.now())
+                )
+            )
+        ).scalar_one()
+        if float(daily) + in_flight >= float(limits.max_daily_cost):
+            raise CostLimitExceeded(
+                f"Daily cost limit reached (${float(limits.max_daily_cost):.2f} across all "
+                f"runs today) — raise max_daily_cost in Settings to continue"
+            )
+
+        if pipeline_run_id is None:
+            return
+        run_total = (
+            await db.execute(
+                select(func.coalesce(func.sum(TokenUsage.cost_usd), 0)).where(
+                    TokenUsage.pipeline_run_id == pipeline_run_id
+                )
+            )
+        ).scalar_one()
+        if float(run_total) + in_flight >= float(limits.max_run_cost):
+            raise CostLimitExceeded(
+                f"Run cost limit reached (${float(limits.max_run_cost):.2f}) — "
+                f"raise max_run_cost in Settings and run again"
+            )
+        agent_total = (
+            await db.execute(
+                select(func.coalesce(func.sum(TokenUsage.cost_usd), 0)).where(
+                    TokenUsage.pipeline_run_id == pipeline_run_id,
+                    TokenUsage.agent_id == agent.id,
+                )
+            )
+        ).scalar_one()
+        if float(agent_total) + in_flight >= float(limits.max_agent_cost):
+            raise CostLimitExceeded(
+                f"Agent cost limit reached for {agent.name} "
+                f"(${float(limits.max_agent_cost):.2f} per run) — raise max_agent_cost "
+                f"in Settings and run again"
+            )
 
 
 async def _wait_for_gate_approval(
@@ -584,10 +655,19 @@ async def execute_agent(
 
     output = AgentOutput(content="", tokens_used=0, input_tokens=0, output_tokens=0, cost_usd=0.0)
     final_text = ""
+    usage_persisted = False
 
     try:
         # 3–5. Streaming tool-use loop
         for _ in range(MAX_TOOL_ITERATIONS):
+            # Cost guardrails: persisted spend plus this agent's in-flight
+            # tokens, checked before every LLM call.
+            await _check_cost_limits(
+                agent,
+                pipeline_run_id,
+                settings,
+                in_flight=_cost(agent.model, output.input_tokens, output.output_tokens),
+            )
             async with client.messages.stream(
                 model=agent.model,
                 max_tokens=MAX_OUTPUT_TOKENS,
@@ -681,6 +761,7 @@ async def execute_agent(
                 conversation.last_message = output.content[:300]
                 conversation.last_active = datetime.now(timezone.utc)
             await db.commit()
+            usage_persisted = True
             await memory_service.save_memory(
                 db,
                 agent.id,
@@ -690,6 +771,22 @@ async def execute_agent(
             )
         return output
     finally:
+        # Tokens burned before a failure (cost limit, API error, cancel) must
+        # still be accounted for — the cost guardrails read token_usage.
+        if not usage_persisted and (output.input_tokens or output.output_tokens):
+            async with session_factory() as db:
+                db.add(
+                    TokenUsage(
+                        agent_id=agent.id,
+                        pipeline_run_id=pipeline_run_id,
+                        provider="anthropic",
+                        model=agent.model,
+                        input_tokens=output.input_tokens,
+                        output_tokens=output.output_tokens,
+                        cost_usd=_cost(agent.model, output.input_tokens, output.output_tokens),
+                    )
+                )
+                await db.commit()
         async with session_factory() as db:
             agent_row = await db.get(Agent, agent.id)
             if agent_row is not None:

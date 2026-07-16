@@ -77,6 +77,9 @@ class Settings(Base):
     embedding_model: Mapped[str] = mapped_column(Text, server_default=text("'voyage-3'"))
     workspace_root: Mapped[str] = mapped_column(Text, server_default=text("'~/forge-workspace'"))
     global_rules: Mapped[str] = mapped_column(Text, server_default=text("''"))
+    max_run_cost: Mapped[Decimal] = mapped_column(Numeric(8, 2), server_default=text("5.00"))
+    max_agent_cost: Mapped[Decimal] = mapped_column(Numeric(8, 2), server_default=text("2.00"))
+    max_daily_cost: Mapped[Decimal] = mapped_column(Numeric(8, 2), server_default=text("20.00"))
     updated_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 

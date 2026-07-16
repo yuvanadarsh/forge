@@ -248,6 +248,10 @@ export interface ForgeSettings {
   embedding_model: string;
   workspace_root: string;
   global_rules: string;
+  /** Cost protection: agents stop automatically once a ceiling is crossed. */
+  max_run_cost: number;
+  max_agent_cost: number;
+  max_daily_cost: number;
   updated_at: string;
 }
 
