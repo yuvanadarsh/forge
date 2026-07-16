@@ -61,6 +61,9 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   const [run, setRun] = useState<PipelineRun | null>(null);
   const [liveStatus, setLiveStatus] = useState<string | null>(null);
   const [approving, setApproving] = useState(false);
+  // Set the instant a gate is approved: suppresses the not-running banner
+  // until the WebSocket confirms the resumed status (next 'status' event).
+  const [isResuming, setIsResuming] = useState(false);
   const [input, setInput] = useState("");
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -182,6 +185,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             break;
           case "status":
             setLiveStatus(event.payload.status);
+            setIsResuming(false); // backend confirmed the post-approval status
             markActivity(event.agent_id, "executing", 65_000);
             break;
           case "gate":
@@ -289,6 +293,12 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
       const updated = await approveGate(pipeline.id, run.id);
       setRun(updated);
       setLiveStatus("running");
+      setIsResuming(true);
+      // Reconnect right away if the socket dropped — don't wait for a poll.
+      const socket = socketRef.current;
+      if (!socket || socket.readyState === WebSocket.CLOSING || socket.readyState === WebSocket.CLOSED) {
+        connectSocket(run.id);
+      }
       setLiveItems((prev) =>
         prev.map((it) => (it.kind === "gate" ? { ...it, status: "approved" as const } : it)),
       );
@@ -484,7 +494,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         </div>
 
         {/* Pipeline-not-running notice — only for idle states where chat is closed */}
-        {!inputEnabled && displayStatus !== "running" && (
+        {!inputEnabled && displayStatus !== "running" && !isResuming && (
           <div
             className="mx-6 mt-3 px-4 py-2 rounded-lg text-xs shrink-0"
             style={{ background: "#141414", color: "#71717a", border: "1px solid #2a2a2a" }}
@@ -588,7 +598,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         </div>
 
         {/* Not-running banner (no run started yet) */}
-        {!runIsActive && displayStatus !== "completed" && displayStatus !== "failed" && (
+        {!runIsActive && !isResuming && displayStatus !== "completed" && displayStatus !== "failed" && (
           <div
             className="mx-6 mb-3 px-4 py-3 rounded-xl border flex items-center justify-between gap-3 shrink-0"
             style={{ background: "#141414", borderColor: "#2a2a2a" }}
