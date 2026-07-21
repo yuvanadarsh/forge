@@ -65,6 +65,13 @@ SHIPPED — OPEN SOURCE PRODUCT. Remaining roadmap lives in the README feature
 checklist (additional execution providers, memory re-embedding). Real-key
 end-to-end pipeline verification is still pending a live Anthropic key.
 
+SESSION 11 (2026-07-16) — FINAL POLISH, SHIPPED PUBLICLY: persistent
+post-completion pipeline chat, persisted tool call history (role
+'tool_call' + migration 007), agent status dots/typing indicator,
+approval-gate banner timing fix, GHCR image publishing (GitHub Actions),
+docker-compose.prod.yml, and the one-command install.sh. Distribution
+details in the "Distribution & Install" section below.
+
 ## Tech Stack — Frontend
 
 - Next.js 16.2.9 (App Router), TypeScript (strict, never use `any`), Tailwind CSS
@@ -98,6 +105,26 @@ end-to-end pipeline verification is still pending a live Anthropic key.
   `docker compose up --build`; a plain `docker compose up` serves stale code
   from the last build. Backend keeps its bind-mount + `--reload`, so backend
   hot reload still works — this tradeoff is frontend-only.
+
+## Distribution & Install (Session 11)
+
+- .github/workflows/publish.yml builds and pushes ghcr.io/<owner>/forge-backend
+  and forge-frontend on every push to main and on published releases; tags
+  :latest and :<sha>, uses GHA layer caching, auth via GITHUB_TOKEN
+  (permissions: packages write)
+- docker-compose.prod.yml (repo root) runs Forge from the pre-built GHCR
+  images — no build:, no source checkout; this is the file install.sh
+  downloads into ~/.forge as its docker-compose.yml
+- The dev docker-compose.yml services also carry image: tags with the GHCR
+  names, so local builds are tagged consistently and `docker compose pull`
+  works from a checkout too
+- install.sh is the user-facing install path (README "Quick Install"):
+  checks Docker + psql, downloads docker-compose.prod.yml + .env.example
+  into ~/.forge, generates SECRET_KEY, creates the DB, applies
+  001_initial.sql, then docker compose pull && up -d
+- install.sh reads the "press Enter" prompt from /dev/tty (|| true), NOT
+  stdin — under `curl | bash` stdin is the script itself and a bare read
+  aborts at EOF under set -e. Keep this if the script is edited.
 
 ## Docker Notes
 ~~- Frontend uses named volumes (frontend_node_modules, frontend_next) instead of
@@ -362,10 +389,14 @@ backend/
 
 ## What NOT to build
 
-- ~~Multi-user auth (single user only)~~ Multi-user auth — not planned
+- ~~Multi-user auth (single user only)~~ ~~Multi-user auth — not planned~~
+  Team collaboration (multi-user) is a README Roadmap idea (Session 11) —
+  still not to be built until explicitly scheduled
 - Cloud deployment (local first, Docker is enough)
 - Drag and drop kanban
-- ~~Voice interface (Meridian integration — future phase)~~ Voice interface — not planned
+- ~~Voice interface (Meridian integration — future phase)~~ ~~Voice interface — not planned~~
+  Voice interface is a README Roadmap idea (Session 11) — still not to be
+  built until explicitly scheduled
 - Payment/billing
 
 ## Known Limitations
@@ -628,6 +659,54 @@ backend/
   exercised to its fallback (plan template, CEO-alone suggestion, task-run
   failure bookkeeping) against local Postgres; streamed real-key runs remain
   Phase-3-verification debt
+
+### Session 11 (2026-07-16) — Final polish & public ship: persistent chat, tool history, indicators, GHCR, installer
+
+- Sessions 10/10.x (same day, PRs #16–#19) were Docker-stability and UX-fix
+  sessions recorded in claude-mem, not here; the "Session 10" references in
+  the Docker sections above come from them
+- Persistent pipeline chat: completed/failed pipelines keep the chat input
+  enabled ("Continue working with your agents..." / "Ask your agents what
+  went wrong..."); Run Again/Retry button and the finished-run status bar
+  are gone; 'running' now DISABLES the input (agents are busy — previously
+  it was enabled)
+- Post-completion message routing lives in routers/conversations.py (the
+  spec named pipelines.py, but POST /conversations/{id}/messages is the
+  endpoint that receives the message): _pipeline_reply_agent picks the
+  @mentioned participant (earliest mention wins, matched as
+  "@"+agent.name case-insensitive), else the last agent who spoke, else
+  the last agent in agent_sequence — only when pipeline.status is
+  completed/failed; active runs still flow through the orchestrator
+- chat_reply(conversation_id, agent_id=None): the override lets a
+  pipeline-level conversation (agent_id null) reply as a chosen agent;
+  reply Messages carry that agent_id so the UI shows name/color
+- Tool call persistence: executor writes a role='tool_call' Message
+  (content = JSON {tool_name, args, status, result_summary}) before each
+  tool runs and updates it to 'completed' with a 200-char result summary
+  after; string args truncated to 500 chars (write_file content would
+  bloat rows). Migration 007 recreates messages_role_check with
+  'tool_call'; 001_initial.sql updated in step
+- ToolCallCard is the shared renderer for live socket tool events AND
+  persisted tool_call history (running pulses via animate-pulse);
+  summarizeToolArgs picks path/command/query for the one-line summary
+- Participants sidebar: markActivity() tracks per-agent live state —
+  token → 'streaming' (blue dot + staggered ••• typing indicator,
+  reverts 3s after tokens stop), tool_call/tool_result/status →
+  'executing' (green, 65s failsafe = command timeout + margin);
+  complete/error clears all. CSS keyframes typingPulse in globals.css
+- Gate-approve banner fix: isResuming set right after PATCH approve-gate
+  succeeds suppresses both not-running notices until the next WS 'status'
+  event confirms; also reconnects the socket immediately if it dropped
+- install.sh dry-run harness (stubbed docker/psql/curl + fake HOME)
+  caught that `read -p` under `curl | bash` aborts at EOF — fixed by
+  reading from /dev/tty with || true; fresh install and re-run both
+  verified exit 0
+- Migration 007 applied to the local forge DB; constraint verified via
+  pg_get_constraintdef
+- README restructured: Quick Install (curl | bash) at top, old Quick
+  Start renamed "For Developers (build from source)", Distribution row +
+  GHCR paragraph in Tech Stack, new Roadmap section (voice, marketplace,
+  multi-user, cloud) — What NOT to build above updated to match
 
 ## CLAUDE.md Rules
 

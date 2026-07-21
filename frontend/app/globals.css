@@ -66,6 +66,22 @@ body {
   animation: slideInRight 200ms ease both;
 }
 
+/* Typing indicator — three staggered pulsing dots (participants sidebar) */
+@keyframes typingPulse {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 1; }
+}
+
+.typing-dot {
+  animation: typingPulse 1s ease-in-out infinite;
+}
+.typing-dot:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.typing-dot:nth-child(3) {
+  animation-delay: 0.4s;
+}
+
 /* Markdown message rendering */
 .markdown-body p { margin-bottom: 0.5em; }
 .markdown-body p:last-child { margin-bottom: 0; }

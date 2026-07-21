@@ -169,6 +169,57 @@ async def _dispatch_create_agent(
     return json.dumps(result)
 
 
+TOOL_ARG_PERSIST_LIMIT = 500      # per-arg chars kept in persisted tool_call messages
+TOOL_RESULT_SUMMARY_CHARS = 200
+
+
+def _tool_call_content(
+    tool_name: str, args: dict, status: str, result_summary: str | None = None
+) -> str:
+    """JSON body for a role='tool_call' message. Long string args (e.g.
+    write_file content) are truncated — the card only shows a summary."""
+    slim_args = {
+        k: (v[:TOOL_ARG_PERSIST_LIMIT] + "…" if isinstance(v, str) and len(v) > TOOL_ARG_PERSIST_LIMIT else v)
+        for k, v in args.items()
+    }
+    payload: dict = {"tool_name": tool_name, "args": slim_args, "status": status}
+    if result_summary is not None:
+        payload["result_summary"] = result_summary
+    return json.dumps(payload)
+
+
+async def _persist_tool_call_start(
+    conversation_id: uuid.UUID, agent_id: uuid.UUID, tool_name: str, args: dict
+) -> uuid.UUID:
+    """Save a running tool_call message so history survives page reloads."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        message = Message(
+            conversation_id=conversation_id,
+            agent_id=agent_id,
+            role="tool_call",
+            content=_tool_call_content(tool_name, args, "running"),
+        )
+        db.add(message)
+        await db.commit()
+        await db.refresh(message)
+        return message.id
+
+
+async def _persist_tool_call_end(
+    message_id: uuid.UUID, tool_name: str, args: dict, result: str
+) -> None:
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        message = await db.get(Message, message_id)
+        if message is None:
+            return
+        message.content = _tool_call_content(
+            tool_name, args, "completed", result[:TOOL_RESULT_SUMMARY_CHARS]
+        )
+        await db.commit()
+
+
 class ExecutionError(Exception):
     """Agent execution failed in a way the pipeline should surface."""
 
@@ -456,20 +507,27 @@ CHAT_MAX_OUTPUT_TOKENS = 4096
 CHAT_MAX_TOOL_ITERATIONS = 5  # Atlas creating a handful of agents per turn is plenty
 
 
-async def chat_reply(conversation_id: uuid.UUID) -> Message | None:
+async def chat_reply(
+    conversation_id: uuid.UUID, agent_id: uuid.UUID | None = None
+) -> Message | None:
     """Basic single-agent chat turn: one non-streaming completion, no tools.
 
-    Used by POST /conversations/{id}/messages for agent conversations (not
-    pipeline runs). Persists the assistant Message + TokenUsage and returns
-    the message; returns None for pipeline-level conversations. Raises
-    ExecutionError when no Anthropic key is configured.
+    Used by POST /conversations/{id}/messages. For agent conversations the
+    replying agent is the conversation's agent; pipeline-level conversations
+    (agent_id null) only reply when an explicit `agent_id` override is passed
+    — the router picks it from the @mention or the last agent who spoke.
+    Persists the assistant Message + TokenUsage and returns the message.
+    Raises ExecutionError when no Anthropic key is configured.
     """
     session_factory = get_session_factory()
     async with session_factory() as db:
         conversation = await db.get(Conversation, conversation_id)
-        if conversation is None or conversation.agent_id is None:
+        if conversation is None:
             return None
-        agent = await db.get(Agent, conversation.agent_id)
+        target_agent_id = agent_id or conversation.agent_id
+        if target_agent_id is None:
+            return None
+        agent = await db.get(Agent, target_agent_id)
         if agent is None:
             return None
         settings = (await db.execute(select(Settings))).scalar_one_or_none()
@@ -699,6 +757,9 @@ async def execute_agent(
                 await streaming_manager.send_tool_call(
                     run_id, block.name, dict(block.input), agent_id=str(agent.id)
                 )
+                tool_msg_id = await _persist_tool_call_start(
+                    conversation_id, agent.id, block.name, dict(block.input)
+                )
                 try:
                     result_str = await _execute_tool(
                         block.name, dict(block.input),
@@ -713,6 +774,9 @@ async def execute_agent(
                     is_error = False
                 except ToolError as exc:
                     result_str, is_error = f"Error: {exc}", True
+                await _persist_tool_call_end(
+                    tool_msg_id, block.name, dict(block.input), result_str
+                )
                 await streaming_manager.send_tool_result(
                     run_id, result_str[:2000], agent_id=str(agent.id)
                 )
