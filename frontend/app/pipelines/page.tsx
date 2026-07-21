@@ -327,14 +327,20 @@ function PipelineCard({
             </>
           )}
           {pipeline.status === "pending_approval" && (() => {
-            const planNotReady =
-              generating || !pipeline.plan_md.trim() || pipeline.agent_sequence.length === 0;
+            const planMissing = generating || !pipeline.plan_md.trim();
+            const agentsMissing = !planMissing && pipeline.agent_sequence.length === 0;
+            const planNotReady = planMissing || agentsMissing;
+            const notReadyTooltip = planMissing
+              ? "Waiting for CEO to finish the execution plan..."
+              : agentsMissing
+                ? "CEO is selecting agents..."
+                : undefined;
             return (
             <div className="mt-6 flex gap-3">
               <button
                 onClick={onApprove}
                 disabled={approving || planNotReady}
-                title={planNotReady ? "Waiting for execution plan…" : undefined}
+                title={notReadyTooltip}
                 className="px-4 py-2 rounded-lg text-sm font-semibold transition-colors duration-150"
                 style={{
                   background: approving || planNotReady ? "#1f1f1f" : "#22c55e",
@@ -409,8 +415,8 @@ export default function PipelinesPage() {
       for (const pipelineId of pendingPlanIds) {
         getPipeline(pipelineId)
           .then((detail) => {
-            if (detail.plan_md) {
-              dispatch({ type: "UPDATE_PIPELINE", pipeline: detail });
+            dispatch({ type: "UPDATE_PIPELINE", pipeline: detail });
+            if (detail.plan_md && detail.agent_sequence.length > 0) {
               setPendingPlanIds((prev) => prev.filter((id) => id !== pipelineId));
               setToast("Execution plan ready for review");
               // Auto-suggest may have had Atlas create new agents — refresh
@@ -436,7 +442,7 @@ export default function PipelinesPage() {
     dispatch({ type: "ADD_PIPELINE", pipeline });
     setShowCreateModal(false);
     setToast(`Pipeline "${pipeline.title}" created`);
-    if (!pipeline.plan_md) {
+    if (!pipeline.plan_md || pipeline.agent_sequence.length === 0) {
       setPendingPlanIds((prev) => [...prev, pipeline.id]);
       setExpanded(pipeline.id); // surface the generating state right away
     }

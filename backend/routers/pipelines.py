@@ -37,7 +37,8 @@ class PipelineCreate(BaseModel):
     # Empty is allowed only with auto_suggest — the CEO fills the sequence.
     agent_sequence: list[uuid.UUID] = Field(default_factory=list)
     plan_md: str = ""
-    workspace_path: str | None = None  # None -> settings.workspace_root/<slug>
+    workspace_path: str | None = None  # None -> settings.workspace_root/<folder_name or slug>
+    folder_name: str | None = None  # workspace folder name; falls back to a slug of title
     created_by: uuid.UUID | None = None
     auto_suggest: bool = False
 
@@ -122,7 +123,8 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
     if not workspace_path:
         settings = (await db.execute(select(Settings))).scalar_one_or_none()
         root = settings.workspace_root if settings else "~/forge-workspace"
-        workspace_path = os.path.join(os.path.expanduser(root), _slug(body.title))
+        folder = _slug(body.folder_name) if body.folder_name else _slug(body.title)
+        workspace_path = os.path.join(os.path.expanduser(root), folder)
     else:
         workspace_path = os.path.expanduser(workspace_path)
     os.makedirs(workspace_path, exist_ok=True)
