@@ -4,6 +4,7 @@ import { use, useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import PipelineChatMessage, { type PipelineChatMsg } from "@/components/PipelineChatMessage";
+import { type ChatImage } from "@/components/chat/ImageAttachment";
 import ToolCallCard, { summarizeToolArgs } from "@/components/ToolCallCard";
 import ApprovalGateCard from "@/components/ApprovalGateCard";
 import PipelineChatInput from "@/components/PipelineChatInput";
@@ -65,6 +66,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   // until the WebSocket confirms the resumed status (next 'status' event).
   const [isResuming, setIsResuming] = useState(false);
   const [input, setInput] = useState("");
+  const [chatImage, setChatImage] = useState<ChatImage | null>(null);
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [agentActivity, setAgentActivity] = useState<AgentActivity>({});
@@ -183,11 +185,28 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
               ];
             });
             break;
-          case "status":
-            setLiveStatus(event.payload.status);
+          case "status": {
+            const status = event.payload.status;
+            if (status.startsWith("scanned:")) {
+              // Auto-ingestion notice — a chat note, not a run status.
+              setLiveItems((prev) => [
+                ...prev,
+                {
+                  kind: "note",
+                  id: nextLiveId(),
+                  text: `📁 Forge scanned your project — ${status.slice("scanned:".length)} files indexed`,
+                  tone: "info",
+                },
+              ]);
+              break;
+            }
+            // Per-agent updates arrive as "running:<AgentName>" — normalize so
+            // status-driven UI (banners, input enable) sees a real run status.
+            setLiveStatus(status.startsWith("running:") ? "running" : status);
             setIsResuming(false); // backend confirmed the post-approval status
             markActivity(event.agent_id, "executing", 65_000);
             break;
+          }
           case "gate":
             setLiveStatus("paused_for_approval");
             setLiveItems((prev) => [
@@ -312,7 +331,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
     }
   }
 
-  async function sendUserMessage(text: string) {
+  async function sendUserMessage(text: string, image?: ChatImage) {
     if (!pipeline) return;
     let convId = conversationId;
     try {
@@ -321,7 +340,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         convId = created.id;
         setConversationId(convId);
       }
-      const result = await sendMessage(convId, text);
+      const result = await sendMessage(convId, text, image);
       setMessages((prev) => [
         ...prev,
         result.user_message,
@@ -335,9 +354,11 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
   function handleSend() {
     const text = input.trim();
-    if (!text) return;
+    const image = chatImage;
+    if (!text && !image) return;
     setInput("");
-    void sendUserMessage(text);
+    setChatImage(null);
+    void sendUserMessage(text, image ?? undefined);
   }
 
   if (fetchState === "notfound") notFound();
@@ -406,6 +427,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
   type HistoryItem =
     | { kind: "chat"; msg: PipelineChatMsg & { gateStatus?: string | null } }
+    | { kind: "system"; id: string; text: string }
     | {
         kind: "tool_call";
         id: string;
@@ -419,10 +441,17 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   const historyItems: HistoryItem[] = messages
     .filter(
       (m) =>
-        m.role === "user" || m.role === "assistant" || m.role === "approval_gate" || m.role === "tool_call",
+        m.role === "user" ||
+        m.role === "assistant" ||
+        m.role === "approval_gate" ||
+        m.role === "tool_call" ||
+        m.role === "system",
     )
     .map((m) => {
       const agent = agentById(m.agent_id);
+      if (m.role === "system") {
+        return { kind: "system" as const, id: m.id, text: m.content };
+      }
       if (m.role === "tool_call") {
         return {
           kind: "tool_call" as const,
@@ -447,6 +476,8 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           approvalSummary: m.content,
           approvalWhatNext: "Approve to resume the pipeline from this gate.",
           gateStatus: m.gate_status,
+          imageData: m.image_data ?? undefined,
+          imageMediaType: m.image_media_type ?? undefined,
         } as PipelineChatMsg & { gateStatus?: string | null },
       };
     });
@@ -513,6 +544,13 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           )}
 
           {historyItems.map((item) => {
+            if (item.kind === "system") {
+              return (
+                <div key={item.id} className="text-center text-xs py-2" style={{ color: "#71717a" }}>
+                  {item.text}
+                </div>
+              );
+            }
             if (item.kind === "tool_call") {
               return (
                 <ToolCallCard
@@ -625,6 +663,9 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           participants={participants}
           disabled={!inputEnabled}
           placeholder={inputPlaceholder}
+          image={chatImage}
+          onImageChange={setChatImage}
+          onImageError={setToast}
         />
       </div>
 

@@ -295,6 +295,32 @@ def _condense_context(prior_context: list[dict]) -> list[dict]:
     return [digest, *tail]
 
 
+def _normalize_turns(messages: list[dict]) -> list[dict]:
+    """Anthropic requires a user-first, alternating-role message list.
+
+    Prior context arrives as loose turns (project-scan summary, per-agent
+    handoff notes, the task itself) — merge consecutive same-role string
+    messages, and prepend a framing user turn when the list would otherwise
+    start with an assistant message (agent 2+ in a pipeline).
+    """
+    merged: list[dict] = []
+    for message in messages:
+        if (
+            merged
+            and merged[-1]["role"] == message["role"]
+            and isinstance(merged[-1]["content"], str)
+            and isinstance(message["content"], str)
+        ):
+            merged[-1]["content"] += f"\n\n{message['content']}"
+        else:
+            merged.append(dict(message))
+    if merged and merged[0]["role"] != "user":
+        merged.insert(
+            0, {"role": "user", "content": "Context from earlier in this pipeline run:"}
+        )
+    return merged
+
+
 def _build_system_prompt(
     agent: Agent, settings: Settings, workspace_path: str, memories: list
 ) -> str:
@@ -506,6 +532,60 @@ CHAT_HISTORY_LIMIT = 40
 CHAT_MAX_OUTPUT_TOKENS = 4096
 CHAT_MAX_TOOL_ITERATIONS = 5  # Atlas creating a handful of agents per turn is plenty
 
+# Pipeline follow-up chats replay the ENTIRE run transcript; past this many
+# turns the middle is elided (head + tail kept) to protect the context window.
+PIPELINE_HISTORY_SUMMARY_THRESHOLD = 30
+PIPELINE_HISTORY_HEAD = 5
+PIPELINE_HISTORY_TAIL = 20
+
+PIPELINE_CONTEXT_NOTE = (
+    "The following is the history of work done in this pipeline. The user is "
+    "now asking you a follow-up question about this completed project."
+)
+
+
+def _chat_turns(
+    history: list[Message],
+    *,
+    pipeline_followup: bool,
+    speaker_names: dict[uuid.UUID, str],
+) -> list[dict]:
+    """Chat turns from persisted messages: user/assistant only — tool_call
+    and gate rows are UI artifacts, not conversation content.
+
+    Pipeline follow-ups additionally label each assistant turn with the
+    speaking agent (multi-agent transcript), elide the middle of very long
+    runs, and prepend a context note framing the transcript — which also
+    guarantees the list is user-first, so the run history survives the
+    alternating-roles merge instead of being dropped.
+    """
+    turns: list[dict] = []
+    for m in history:
+        if m.role not in ("user", "assistant"):
+            continue
+        content = m.content if m.content.strip() else ""
+        if m.image_data:
+            # Text stand-in; the actual image block is attached only to the
+            # latest user turn (chat_reply) so history stays lightweight.
+            content = f"[image attached] {content}".rstrip()
+        if not content.strip():
+            continue
+        if m.role == "assistant" and m.agent_id in speaker_names:
+            content = f"[{speaker_names[m.agent_id]}] {content}"
+        turns.append({"role": m.role, "content": content})
+
+    if not pipeline_followup:
+        return turns
+
+    if len(turns) > PIPELINE_HISTORY_SUMMARY_THRESHOLD:
+        omitted = len(turns) - PIPELINE_HISTORY_HEAD - PIPELINE_HISTORY_TAIL
+        turns = [
+            *turns[:PIPELINE_HISTORY_HEAD],
+            {"role": "user", "content": f"[Summary: {omitted} messages omitted]"},
+            *turns[-PIPELINE_HISTORY_TAIL:],
+        ]
+    return [{"role": "user", "content": PIPELINE_CONTEXT_NOTE}, *turns]
+
 
 async def chat_reply(
     conversation_id: uuid.UUID, agent_id: uuid.UUID | None = None
@@ -516,6 +596,8 @@ async def chat_reply(
     replying agent is the conversation's agent; pipeline-level conversations
     (agent_id null) only reply when an explicit `agent_id` override is passed
     — the router picks it from the @mention or the last agent who spoke.
+    Pipeline replies get the FULL run transcript as context (see _chat_turns)
+    so the agent remembers everything that happened in the pipeline.
     Persists the assistant Message + TokenUsage and returns the message.
     Raises ExecutionError when no Anthropic key is configured.
     """
@@ -532,19 +614,45 @@ async def chat_reply(
             return None
         settings = (await db.execute(select(Settings))).scalar_one_or_none()
 
-        rows = await db.execute(
-            select(Message)
-            .where(Message.conversation_id == conversation_id)
-            .order_by(Message.created_at.desc())
-            .limit(CHAT_HISTORY_LIMIT)
+        pipeline_followup = (
+            conversation.agent_id is None and conversation.pipeline_id is not None
         )
-        history = list(reversed(rows.scalars().all()))
+        if pipeline_followup:
+            # Post-completion pipeline chat: replay the whole run, not a
+            # recent-messages window — _chat_turns elides the middle if long.
+            rows = await db.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.created_at)
+            )
+            history = list(rows.scalars().all())
+        else:
+            rows = await db.execute(
+                select(Message)
+                .where(Message.conversation_id == conversation_id)
+                .order_by(Message.created_at.desc())
+                .limit(CHAT_HISTORY_LIMIT)
+            )
+            history = list(reversed(rows.scalars().all()))
 
-        latest_user = next(
-            (m.content for m in reversed(history) if m.role == "user"), ""
-        )
+        # Label pipeline turns by speaker so the replying agent can tell who
+        # did what in a multi-agent transcript.
+        speaker_names: dict[uuid.UUID, str] = {}
+        if pipeline_followup:
+            speaker_ids = {m.agent_id for m in history if m.agent_id is not None}
+            if speaker_ids:
+                agent_rows = await db.execute(
+                    select(Agent).where(Agent.id.in_(speaker_ids))
+                )
+                speaker_names = {a.id: a.name for a in agent_rows.scalars().all()}
+
+        latest_user_msg = next((m for m in reversed(history) if m.role == "user"), None)
         memories = await memory_service.search_memories(
-            db, agent.id, latest_user, top_k=5, threshold=0.3
+            db,
+            agent.id,
+            latest_user_msg.content if latest_user_msg is not None else "",
+            top_k=5,
+            threshold=0.3,
         )
         client = await _anthropic_client(db)
         agent.status = "working"
@@ -559,20 +667,47 @@ async def chat_reply(
         parts.append(f"## Relevant context from your past work\n{memory_lines}")
     system_prompt = "\n\n".join(parts)
 
+    turns = _chat_turns(
+        history, pipeline_followup=pipeline_followup, speaker_names=speaker_names
+    )
+
     # Anthropic requires user-first, alternating roles: merge consecutive
-    # same-role messages and drop anything before the first user turn.
+    # same-role messages and drop anything before the first user turn (the
+    # pipeline context note is user-first, so run history is never dropped).
     merged: list[dict] = []
-    for m in history:
-        if m.role not in ("user", "assistant") or not m.content.strip():
-            continue
-        if merged and merged[-1]["role"] == m.role:
-            merged[-1]["content"] += f"\n\n{m.content}"
+    for turn in turns:
+        if merged and merged[-1]["role"] == turn["role"]:
+            merged[-1]["content"] += f"\n\n{turn['content']}"
         else:
-            merged.append({"role": m.role, "content": m.content})
+            merged.append(dict(turn))
     while merged and merged[0]["role"] != "user":
         merged.pop(0)
     if not merged:
         return None
+
+    # The just-sent user message may carry an image: send it as a real image
+    # content block ahead of the text (Anthropic multi-part content).
+    if (
+        latest_user_msg is not None
+        and latest_user_msg.image_data
+        and latest_user_msg.image_media_type
+        and merged[-1]["role"] == "user"
+        and isinstance(merged[-1]["content"], str)
+    ):
+        merged[-1] = {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": latest_user_msg.image_media_type,
+                        "data": latest_user_msg.image_data,
+                    },
+                },
+                {"type": "text", "text": merged[-1]["content"]},
+            ],
+        }
 
     # Eternal agents (Atlas) get create_agent in chat — their whole job is
     # designing agents conversationally. Regular agents stay tool-free here.
@@ -694,7 +829,8 @@ async def execute_agent(
             agent_row.last_active = datetime.now(timezone.utc)
             await db.commit()
 
-    # 2. Message list: condensed prior context + the task itself
+    # 2. Message list: condensed prior context + the task itself, normalized
+    # to the user-first alternating shape the API requires.
     system_prompt = _build_system_prompt(agent, settings, workspace_path, memories)
     messages: list[dict] = _condense_context(prior_context)
     messages.append(
@@ -704,6 +840,7 @@ async def execute_agent(
             "Complete this task using your tools. When finished, summarize what you did.",
         }
     )
+    messages = _normalize_turns(messages)
     settings_dict = {
         "terminal_execution": settings.terminal_execution,
         "strict_mode": settings.strict_mode,

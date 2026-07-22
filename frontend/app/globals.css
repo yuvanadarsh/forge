@@ -105,6 +105,11 @@ body {
   padding: 0;
   border-radius: 0;
 }
+.markdown-body hr {
+  border: none;
+  border-top: 1px solid #2a2a2a;
+  margin: 1em 0;
+}
 .markdown-body h1, .markdown-body h2, .markdown-body h3 {
   font-weight: 600;
   color: #f5f5f5;

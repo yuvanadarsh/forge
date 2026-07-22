@@ -64,9 +64,10 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
   }
 
   const agents = state.agents;
-  // Auto-suggest defaults on when a CEO-role agent exists to do the choosing.
+  // Auto-plan defaults on whenever any workable (non-eternal) agent exists —
+  // the backend falls back to the best available planner, no CEO required.
   const [autoSuggest, setAutoSuggest] = useState(
-    () => state.agents.some((a) => a.role.trim().toLowerCase() === "ceo"),
+    () => state.agents.some((a) => !a.is_eternal),
   );
 
   function toggleAgent(agentId: string) {
@@ -176,13 +177,14 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
                 />
               </span>
               <span className="text-sm" style={{ color: autoSuggest ? "#f5f5f5" : "#71717a" }}>
-                Let CEO suggest the pipeline
+                Auto-plan with Forge
               </span>
             </button>
             {autoSuggest && (
               <p className="text-xs mt-2 leading-relaxed" style={{ color: "#71717a" }}>
-                CEO will select the best agents for this task — and Atlas will create any
-                that are missing. You&apos;ll review and approve before anything runs.
+                Forge will analyze your available agents and build the best pipeline for
+                this task — creating any missing specialists automatically. You&apos;ll
+                review and approve before anything runs.
               </p>
             )}
           </div>

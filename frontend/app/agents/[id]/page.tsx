@@ -4,6 +4,7 @@ import { use, useEffect, useState } from "react";
 import Link from "next/link";
 import { notFound, useRouter } from "next/navigation";
 import AgentStatCards from "@/components/AgentStatCards";
+import EditAgentModal from "@/components/agents/EditAgentModal";
 import ErrorState from "@/components/ErrorState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Toast from "@/components/Toast";
@@ -14,7 +15,6 @@ import {
   getAgent,
   listAgentRuns,
   listConversations,
-  updateAgent,
 } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { AgentRun, BackendAgentDetail, BackendConversation } from "@/types";
@@ -51,7 +51,7 @@ const RUN_STATUS_STYLES: Record<string, { label: string; color: string; bg: stri
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const router = useRouter();
-  const { state, dispatch } = useForge();
+  const { state } = useForge();
 
   const [agent, setAgent] = useState<BackendAgentDetail | null>(null);
   const [fetchState, setFetchState] = useState<"loading" | "ready" | "notfound" | "error">(
@@ -60,9 +60,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
   const [conversations, setConversations] = useState<BackendConversation[]>([]);
   const [runs, setRuns] = useState<AgentRun[]>([]);
 
-  const [editingPrompt, setEditingPrompt] = useState(false);
-  const [promptDraft, setPromptDraft] = useState("");
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [editOpen, setEditOpen] = useState(false);
   const [runHistoryOpen, setRunHistoryOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
@@ -161,35 +159,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
     : (RING_COLORS[agent.avatar_color] ?? [agent.avatar_color, agent.avatar_color]);
   const gradient = `linear-gradient(to right, ${pair[0]}, ${pair[1]})`;
 
-  function startEdit() {
-    if (agent) {
-      setPromptDraft(agent.system_prompt);
-      setEditingPrompt(true);
-    }
-  }
-
-  async function savePrompt() {
-    if (!agent) return;
-    const previous = agent.system_prompt;
-    const draft = promptDraft;
-    // Optimistic: reflect the edit immediately, revert if the PATCH fails.
-    setAgent((prev) => (prev ? { ...prev, system_prompt: draft } : prev));
-    setEditingPrompt(false);
-    setSaveState("saving");
-    try {
-      const updated = await updateAgent(id, { system_prompt: draft });
-      dispatch({ type: "UPDATE_AGENT", agent: updated });
-      setSaveState("saved");
-      setTimeout(() => setSaveState("idle"), 2000);
-    } catch (err) {
-      setAgent((prev) => (prev ? { ...prev, system_prompt: previous } : prev));
-      setSaveState("idle");
-      setToast(
-        `Failed to save prompt: ${err instanceof Error ? err.message : "unknown error"}`,
-      );
-    }
-  }
-
   return (
     <div className="px-8 py-8 max-w-[900px] mx-auto">
       <Link
@@ -238,62 +207,29 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           <h2 className="text-sm font-semibold uppercase tracking-wider" style={{ color: "#71717a" }}>
             System Prompt
           </h2>
-          {agent.is_eternal ? (
-            <span className="text-xs flex items-center gap-1.5" style={{ color: "#f59e0b" }}>
-              ⚡ {`${agent.name} is Forge's eternal agent. Its configuration is permanent.`}
-            </span>
-          ) : !editingPrompt ? (
+          <div className="flex items-center gap-3">
+            {agent.is_eternal && (
+              <span className="text-xs flex items-center gap-1.5" style={{ color: "#f59e0b" }}>
+                ⚡ {`${agent.name} is Forge's eternal agent. Its configuration is permanent.`}
+              </span>
+            )}
             <button
-              onClick={startEdit}
-              disabled={saveState === "saving"}
+              onClick={() => setEditOpen(true)}
               className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
-              style={{
-                background: "#1f1f1f",
-                color: saveState === "saved" ? "#22c55e" : "#71717a",
-              }}
+              style={{ background: "#1f1f1f", color: "#71717a" }}
               onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5"; }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLButtonElement).style.color =
-                  saveState === "saved" ? "#22c55e" : "#71717a";
-              }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#71717a"; }}
             >
-              {saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved ✓" : "Edit"}
+              {agent.is_eternal ? "View" : "Edit"}
             </button>
-          ) : (
-            <div className="flex gap-2">
-              <button
-                onClick={() => setEditingPrompt(false)}
-                className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
-                style={{ background: "#1f1f1f", color: "#71717a" }}
-              >
-                Cancel
-              </button>
-              <button
-                onClick={savePrompt}
-                className="text-xs px-3 py-1.5 rounded-lg font-medium transition-colors duration-150"
-                style={{ background: "#f59e0b", color: "#0a0a0a" }}
-              >
-                Save
-              </button>
-            </div>
-          )}
-        </div>
-        {editingPrompt ? (
-          <textarea
-            value={promptDraft}
-            onChange={(e) => setPromptDraft(e.target.value)}
-            rows={8}
-            className="w-full px-4 py-3 rounded-xl text-sm leading-relaxed outline-none border resize-none transition-colors duration-150"
-            style={{ background: "#111111", borderColor: "#f59e0b", color: "#f5f5f5" }}
-          />
-        ) : (
-          <div
-            className="p-4 rounded-xl border text-sm leading-relaxed"
-            style={{ background: "#111111", borderColor: "#1f1f1f", color: "#a1a1aa" }}
-          >
-            {agent.system_prompt || <span style={{ color: "#3f3f46" }}>No system prompt set.</span>}
           </div>
-        )}
+        </div>
+        <div
+          className="p-4 rounded-xl border text-sm leading-relaxed"
+          style={{ background: "#111111", borderColor: "#1f1f1f", color: "#a1a1aa" }}
+        >
+          {agent.system_prompt || <span style={{ color: "#3f3f46" }}>No system prompt set.</span>}
+        </div>
       </section>
 
       {/* Token Usage Graph */}
@@ -470,6 +406,18 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
           </div>
         )}
       </section>
+
+      {editOpen && (
+        <EditAgentModal
+          agent={agent}
+          onClose={() => setEditOpen(false)}
+          onSaved={(updated, message) => {
+            setAgent((prev) => (prev ? { ...prev, ...updated } : prev));
+            setToast(message);
+          }}
+          onError={setToast}
+        />
+      )}
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>

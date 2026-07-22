@@ -45,8 +45,17 @@ class ConversationUpdate(BaseModel):
     title: str = Field(min_length=1)
 
 
+ALLOWED_IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp"}
+# Base64 chars, ~7.5MB decoded — above Anthropic's 5MB/image API limit, so the
+# provider stays the effective ceiling and this only blocks absurd payloads.
+MAX_IMAGE_B64_CHARS = 10_000_000
+
+
 class MessageCreate(BaseModel):
-    content: str = Field(min_length=1)
+    # Empty content is allowed when an image is attached (image-only message).
+    content: str = ""
+    image_data: str | None = None  # raw base64, no data: prefix
+    image_media_type: str | None = None
 
 
 class MessageOut(BaseModel):
@@ -59,6 +68,8 @@ class MessageOut(BaseModel):
     content: str
     sender_agent_id: uuid.UUID | None
     gate_status: str | None
+    image_data: str | None
+    image_media_type: str | None
     input_tokens: int | None
     output_tokens: int | None
     cost_usd: Decimal | None
@@ -226,9 +237,25 @@ async def add_user_message(
     last agent who spoke. While a run is active their traffic flows
     through the orchestrator + WebSocket instead."""
     conversation = await _get_conversation_or_404(conversation_id, db)
-    message = Message(conversation_id=conversation_id, role="user", content=body.content)
+    if not body.content.strip() and body.image_data is None:
+        raise HTTPException(status_code=422, detail="Message needs text or an image")
+    if body.image_data is not None:
+        if body.image_media_type not in ALLOWED_IMAGE_MEDIA_TYPES:
+            raise HTTPException(
+                status_code=422,
+                detail="Unsupported image type — use PNG, JPEG, GIF, or WebP",
+            )
+        if len(body.image_data) > MAX_IMAGE_B64_CHARS:
+            raise HTTPException(status_code=413, detail="Image too large (max ~5MB)")
+    message = Message(
+        conversation_id=conversation_id,
+        role="user",
+        content=body.content,
+        image_data=body.image_data,
+        image_media_type=body.image_media_type,
+    )
     db.add(message)
-    conversation.last_message = body.content[:300]
+    conversation.last_message = (body.content or "📷 Image")[:300]
     conversation.last_active = datetime.now(timezone.utc)
     is_agent_conversation = conversation.agent_id is not None
     pipeline_agent_id: uuid.UUID | None = None

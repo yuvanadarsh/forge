@@ -62,8 +62,11 @@ banner, cost protection ceilings, and open source docs (README rewrite,
 CONTRIBUTING.md, MIT LICENSE).
 
 SHIPPED — OPEN SOURCE PRODUCT. Remaining roadmap lives in the README feature
-checklist (additional execution providers, memory re-embedding). Real-key
-end-to-end pipeline verification is still pending a live Anthropic key.
+checklist (additional execution providers, memory re-embedding). ~~Real-key
+end-to-end pipeline verification is still pending a live Anthropic key.~~
+Real-key verification DONE (Session 12) — a live Anthropic key now sits in
+the local vault; a full pipeline run, post-completion chat replies, and
+image content blocks were all verified against the real API.
 
 SESSION 11 (2026-07-16) — FINAL POLISH, SHIPPED PUBLICLY: persistent
 post-completion pipeline chat, persisted tool call history (role
@@ -71,6 +74,14 @@ post-completion pipeline chat, persisted tool call history (role
 approval-gate banner timing fix, GHCR image publishing (GitHub Actions),
 docker-compose.prod.yml, and the one-command install.sh. Distribution
 details in the "Distribution & Install" section below.
+
+SESSION 12 (2026-07-21) — CHAT CONTEXT, IMAGES, POLISH: post-completion
+pipeline chat now injects the full run transcript, Claude-style code
+blocks with copy button, image attachments in chat (migration 008),
+auto-plan freed from the CEO requirement, full agent edit modal,
+existing-project auto-ingestion before the first agent runs, and the
+first real-key end-to-end pipeline run. New sections below + Session 12
+history entry.
 
 ## Tech Stack — Frontend
 
@@ -227,6 +238,75 @@ details in the "Distribution & Install" section below.
 - Eternal agents are excluded from auto-suggest selection (they never perform
   pipeline tasks) and their amber ring (#f59e0b→#f97316) overrides avatar color
 
+## Post-Completion Pipeline Chat Context (Session 12)
+
+- chat_reply detects pipeline conversations (conversation.agent_id NULL +
+  pipeline_id set) and loads the ENTIRE transcript instead of the
+  40-message CHAT_HISTORY_LIMIT window
+- _chat_turns (pure helper, unit-testable without DB or key) labels each
+  assistant turn with the speaking agent's name ("[Aria] …"), elides
+  transcripts >30 turns to first 5 + "[Summary: N messages omitted]" +
+  last 20, and prepends the context note as a USER turn — user-first
+  ordering is what stops the alternating-roles merge from dropping the
+  (assistant-first) run history. That drop was the original "I don't have
+  any previous context" bug.
+- Image messages appear in history as "[image attached] <text>"; only the
+  newest user message is sent as a real image content block (payload size)
+
+## Image Attachments (Session 12)
+
+- messages.image_data (raw base64, NO data: prefix) + image_media_type
+  (VARCHAR(50)); migration 008, 001_initial.sql kept in step
+- POST /conversations/{id}/messages validates PNG/JPEG/GIF/WebP, caps at
+  10M base64 chars (backend backstop; the 5MB frontend cap is the real
+  limit, matching Anthropic's per-image API limit); empty content is
+  allowed when an image is attached ("📷 Image" becomes last_message)
+- components/chat/ImageAttachment.tsx: AttachImageButton (Paperclip via
+  lucide-react — new dependency), staged ImagePreview with remove ✕, and
+  the message thumbnail (≤400px, click-to-expand lightbox at z-40)
+- Both chat inputs have the paperclip (agent chat inline input +
+  PipelineChatInput via optional image/onImageChange/onImageError props)
+- Images flow only through chat (chat_reply); pipeline/task executions do
+  not receive image content
+
+## Existing Project Auto-Ingestion (Session 12)
+
+- run_pipeline scans a non-empty workspace before building the graph:
+  gitignore-aware walk (reuses tool_registry._load_gitignore/_is_ignored,
+  same precedent as planner importing executor privates), skips dot-dirs
+  and node_modules/dist/build/etc, lists up to 200 files, excerpts up to
+  20 files under 50KB (1500 chars each; README/package.json/pyproject/
+  docker-compose read first). Empty/missing workspace → no scan (fresh
+  project). Scan failure logs but NEVER blocks the run.
+- The summary is prepended to the FIRST agent's prior_context as a user
+  turn; a role='system' "📁 Forge scanned your project — N files indexed"
+  message is persisted to the pipeline conversation (pipeline chat now
+  renders role='system' as a centered note); live viewers get a
+  "scanned:N" status event which the frontend converts to a chat note —
+  NOT a run status
+- executor._normalize_turns merges prior context into user-first
+  alternating turns and prepends a framing user turn when the list would
+  start with assistant — this also fixed the latent agent-2+ bug where
+  the messages array began with an assistant turn (the API rejects that;
+  it had never surfaced because no real-key multi-agent run had executed)
+- The frontend status handler now normalizes "running:<agent>" payloads
+  to "running" — raw per-agent statuses previously leaked into
+  displayStatus and misfired the not-running banners mid-run
+
+## Auto-Plan — CEO Requirement Removed (Session 12)
+
+- planner._pick_planner preference chain: role containing "ceo" → role
+  containing "director"/"lead" → first candidate → oldest non-eternal
+  agent on the roster; candidates checked before the roster-wide pass;
+  eternal agents are never planners. Returns None only on an empty roster
+  (existing degradation paths handle it).
+- Create Pipeline toggle is now "Auto-plan with Forge", default ON when
+  any non-eternal agent exists (was: only when an exact 'CEO' role
+  existed); every user-facing CEO string replaced (pipeline cards, empty
+  state, approve-endpoint 409 detail)
+- CreateAgentModal's CEO role PRESET is intentionally kept — that's agent
+  creation, not pipeline creation
+
 ## Task Runs (Session 9)
 
 - POST /api/tasks/{id}/run executes the assigned agent in the background:
@@ -363,7 +443,17 @@ frontend/
   components/EmptyState.tsx           — icon/title/CTA empty card (Session 6)
   components/ErrorBanner.tsx          — global store.error banner in layout (Session 6)
   components/OnboardingBanner.tsx     — first-run welcome card, localStorage dismiss (Session 9)
+  components/chat/CodeBlock.tsx       — Claude-style code block + copy button and the
+                                        shared chatMarkdownComponents map (Session 12)
+  components/chat/ImageAttachment.tsx — attach button, staged preview, message
+                                        thumbnail + lightbox (Session 12)
+  components/agents/EditAgentModal.tsx — full agent editor; read-only for eternal
+                                        agents (Session 12)
 ```
+
+New component SUBDIRECTORIES (components/chat/, components/agents/) were
+introduced in Session 12 for new files only — everything pre-existing stays
+flat in components/.
 
 ## Backend File Structure (created in Session 5)
 
@@ -382,6 +472,8 @@ backend/
     migrations/001_initial.sql       — full schema for fresh installs (kept current)
     migrations/002–006_*.sql         — upgrades: is_eternal, agent_created log op,
                                        suggestion_reasoning, archive, cost limits (Session 9)
+    migrations/007_tool_call_messages.sql — role CHECK gains 'tool_call' (Session 11)
+    migrations/008_chat_images.sql   — messages.image_data + image_media_type (Session 12)
     seeds/001_eternal_agents.sql     — Atlas; run on every startup (Session 9)
   requirements.txt
   Dockerfile
@@ -409,6 +501,9 @@ backend/
   and testable in the vault but don't run agents yet
 - Command approval gates exist only in pipeline runs — standalone task runs
   fail gated commands instead of pausing
+- Image attachments are chat-only — pipeline/task agent executions never
+  receive image content, and only the newest user message carries the real
+  image block (history keeps "[image attached]" text markers)
 
 ## Session History Decisions
 
@@ -707,6 +802,44 @@ backend/
   Start renamed "For Developers (build from source)", Distribution row +
   GHCR paragraph in Tech Stack, new Roadmap section (voice, marketplace,
   multi-user, cloud) — What NOT to build above updated to match
+
+### Session 12 (2026-07-21) — Chat context, images, code blocks, auto-plan, agent edit, ingestion
+
+- Group 1 root cause: pipeline conversations are assistant-first, and
+  chat_reply's "drop anything before the first user turn" merge deleted the
+  entire run history — agents literally only ever saw the new question. The
+  context note as a leading USER turn fixes the ordering structurally (no
+  special-casing in the merge); _chat_turns extracted as a pure helper so
+  it's testable with in-memory Message objects, no DB or key
+- The local vault now holds a REAL Anthropic key (added by the user between
+  sessions). Verified live: pipeline follow-up answers from planted history
+  ("what color was the button?" → "Chartreuse."), image content blocks
+  accepted end-to-end, and one full pipeline run (fixture project → scan →
+  status completed → agent answered a codebase question with zero tool
+  calls). Test agents/pipelines deleted afterward, including their
+  token_usage rows, so analytics aren't polluted with probe noise
+- JetBrains Mono loads via next/font/google (build-time self-hosted, same
+  pattern as Geist, exposed as --font-jetbrains-mono) rather than a runtime
+  Google Fonts CDN link — works offline after build; the spec's "CDN"
+  wording was treated as "use the Google Fonts family"
+- CodeBlock overrides ReactMarkdown's `pre`, NOT `code`: rehype-highlight
+  has already rewritten children into hljs spans, so the language is parsed
+  from the <code> child's className and Copy reads the rendered DOM's
+  textContent (works regardless of highlighting)
+- PROVIDER_MODELS + COLOR_PRESETS now export from CreateAgentModal and are
+  reused by EditAgentModal; the edit modal PATCHes only changed fields and
+  keeps an unlisted current model selectable as "<model> (current)"
+- PATCH /api/agents/{id} 403s for eternal agents (defense in depth,
+  mirrors DELETE); AgentUpdate gained avatar_color
+- install.sh fresh installs are unaffected by 008 (001 carries the image
+  columns); existing installs must run migration 008 once
+- messages role CHECK already allowed 'system' since 001 — the scan notice
+  needed no migration, only frontend rendering for the role
+- sendUserMessage(text, image?) in pipeline chat takes the image as a
+  parameter so ApprovalGateCard feedback sends never attach a staged image
+- Pre-existing eslint errors (react-hooks/set-state-in-effect ×2 in
+  agents/[id]/page.tsx, from Session 6/8 code) are untouched — not
+  introduced this session, not this session's scope
 
 ## CLAUDE.md Rules
 

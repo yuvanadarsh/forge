@@ -35,6 +35,7 @@ class AgentUpdate(BaseModel):
     specialty: str | None = None
     system_prompt: str | None = None
     model: str | None = None
+    avatar_color: str | None = None
 
 
 class AgentOut(BaseModel):
@@ -213,6 +214,11 @@ async def update_agent(
     agent_id: uuid.UUID, body: AgentUpdate, db: AsyncSession = Depends(get_db)
 ) -> AgentOut:
     agent = await _get_agent_or_404(agent_id, db)
+    if agent.is_eternal:
+        raise HTTPException(
+            status_code=403,
+            detail=f"{agent.name} is an eternal agent — its configuration is permanent.",
+        )
     for field, value in body.model_dump(exclude_unset=True, exclude_none=True).items():
         setattr(agent, field, value)
     await db.commit()

@@ -6,6 +6,12 @@ import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { notFound } from "next/navigation";
+import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
+import ImageAttachment, {
+  AttachImageButton,
+  ImagePreview,
+  type ChatImage,
+} from "@/components/chat/ImageAttachment";
 import Toast from "@/components/Toast";
 import ConversationMenu from "@/components/ConversationMenu";
 import {
@@ -45,8 +51,10 @@ export default function ConversationPage({
   const [oldestLoadedPage, setOldestLoadedPage] = useState(1);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [pendingText, setPendingText] = useState<string | null>(null);
+  const [pendingImage, setPendingImage] = useState<ChatImage | null>(null);
   const [thinking, setThinking] = useState(false);
   const [input, setInput] = useState("");
+  const [image, setImage] = useState<ChatImage | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
@@ -118,9 +126,12 @@ export default function ConversationPage({
 
   async function handleSend() {
     const text = input.trim();
-    if (!text || pendingText !== null) return;
+    const attachment = image;
+    if ((!text && !attachment) || pendingText !== null) return;
     setInput("");
+    setImage(null);
     setPendingText(text);
+    setPendingImage(attachment);
     setThinking(true);
     try {
       let targetId = convId;
@@ -128,13 +139,14 @@ export default function ConversationPage({
         const created = await createConversation({ title: "General Chat", agent_id: id });
         targetId = created.id;
       }
-      const result = await sendMessage(targetId, text);
+      const result = await sendMessage(targetId, text, attachment ?? undefined);
       setMessages((prev) => [
         ...prev,
         result.user_message,
         ...(result.assistant_message ? [result.assistant_message] : []),
       ]);
       setPendingText(null);
+      setPendingImage(null);
       if (result.error) setToast(result.error);
       if (isNew) {
         router.replace(`/agents/${id}/conversations/${targetId}`);
@@ -159,7 +171,9 @@ export default function ConversationPage({
       }
     } catch (err) {
       setPendingText(null);
+      setPendingImage(null);
       setInput(text); // give the draft back
+      setImage(attachment);
       setToast(`Send failed: ${err instanceof Error ? err.message : "backend unreachable"}`);
     } finally {
       setThinking(false);
@@ -363,10 +377,13 @@ export default function ConversationPage({
                         : { background: "#111111", color: "#f5f5f5", border: "1px solid #1f1f1f", borderRadius: "4px 18px 18px 18px" }
                     }
                   >
+                    {msg.image_data && msg.image_media_type && (
+                      <ImageAttachment data={msg.image_data} mediaType={msg.image_media_type} />
+                    )}
                     {isUser ? (
                       <span className="whitespace-pre-wrap">{msg.content}</span>
                     ) : (
-                      <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+                      <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={chatMarkdownComponents}>
                         {msg.content}
                       </ReactMarkdown>
                     )}
@@ -393,6 +410,9 @@ export default function ConversationPage({
                   className="px-4 py-3 text-sm leading-relaxed"
                   style={{ background: "#1f1f1f", color: "#f5f5f5", borderRadius: "18px 4px 18px 18px" }}
                 >
+                  {pendingImage && (
+                    <ImageAttachment data={pendingImage.data} mediaType={pendingImage.mediaType} />
+                  )}
                   <span className="whitespace-pre-wrap">{pendingText}</span>
                 </div>
                 <div className="text-[10px] px-1" style={{ color: "#3f3f46" }}>sending…</div>
@@ -440,7 +460,13 @@ export default function ConversationPage({
 
         {/* Input */}
         <div className="px-6 py-4 border-t shrink-0" style={{ borderColor: "#1f1f1f" }}>
+          {image && <ImagePreview image={image} onRemove={() => setImage(null)} />}
           <div className="flex gap-3">
+            <AttachImageButton
+              onSelect={setImage}
+              onError={setToast}
+              disabled={pendingText !== null}
+            />
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -453,9 +479,12 @@ export default function ConversationPage({
             />
             <button
               onClick={handleSend}
-              disabled={!input.trim() || pendingText !== null}
+              disabled={(!input.trim() && !image) || pendingText !== null}
               className="px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150"
-              style={{ background: input.trim() && pendingText === null ? "#f59e0b" : "#1f1f1f", color: input.trim() && pendingText === null ? "#0a0a0a" : "#3f3f46" }}
+              style={{
+                background: (input.trim() || image) && pendingText === null ? "#f59e0b" : "#1f1f1f",
+                color: (input.trim() || image) && pendingText === null ? "#0a0a0a" : "#3f3f46",
+              }}
             >
               Send
             </button>

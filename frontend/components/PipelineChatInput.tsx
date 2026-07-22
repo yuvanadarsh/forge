@@ -1,6 +1,11 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import {
+  AttachImageButton,
+  ImagePreview,
+  type ChatImage,
+} from "@/components/chat/ImageAttachment";
 import type { BackendAgent } from "@/types";
 
 interface Props {
@@ -10,6 +15,10 @@ interface Props {
   participants?: BackendAgent[];
   disabled?: boolean;
   placeholder?: string;
+  /** Staged image attachment; omit to hide the attach button. */
+  image?: ChatImage | null;
+  onImageChange?: (image: ChatImage | null) => void;
+  onImageError?: (message: string) => void;
 }
 
 export default function PipelineChatInput({
@@ -19,6 +28,9 @@ export default function PipelineChatInput({
   participants = [],
   disabled = false,
   placeholder = "Message the pipeline... (type @ to mention an agent)",
+  image = null,
+  onImageChange,
+  onImageError,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -118,7 +130,17 @@ export default function PipelineChatInput({
         </div>
       )}
 
+      {image && onImageChange && (
+        <ImagePreview image={image} onRemove={() => onImageChange(null)} />
+      )}
       <div className="flex gap-3 items-end">
+        {onImageChange && (
+          <AttachImageButton
+            onSelect={onImageChange}
+            onError={(message) => onImageError?.(message)}
+            disabled={disabled}
+          />
+        )}
         <textarea
           ref={ref}
           value={value}
@@ -134,11 +156,11 @@ export default function PipelineChatInput({
         />
         <button
           onClick={onSend}
-          disabled={disabled || !value.trim()}
+          disabled={disabled || (!value.trim() && !image)}
           className="px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 shrink-0 disabled:cursor-not-allowed"
           style={{
-            background: !disabled && value.trim() ? "#f59e0b" : "#1f1f1f",
-            color: !disabled && value.trim() ? "#0a0a0a" : "#3f3f46",
+            background: !disabled && (value.trim() || image) ? "#f59e0b" : "#1f1f1f",
+            color: !disabled && (value.trim() || image) ? "#0a0a0a" : "#3f3f46",
           }}
         >
           Send

@@ -154,7 +154,7 @@ function PipelineCard({
           <div className="flex items-center gap-2 flex-wrap">
             {generating && pipeline.agent_sequence.length === 0 ? (
               <span className="text-xs animate-pulse" style={{ color: "#f59e0b" }}>
-                CEO is choosing agents…
+                Forge is choosing agents…
               </span>
             ) : (
               pipelineAgents.map((agent, idx) => {
@@ -302,7 +302,7 @@ function PipelineCard({
             <div className="flex items-center gap-2.5 text-sm animate-pulse py-2" style={{ color: "#f59e0b" }}>
               <span className="w-2 h-2 rounded-full shrink-0" style={{ background: "#f59e0b" }} />
               {pipeline.agent_sequence.length === 0
-                ? "CEO is choosing agents and drafting the plan…"
+                ? "Forge is choosing agents and drafting the plan…"
                 : "Generating execution plan…"}
             </div>
           ) : (
@@ -313,7 +313,7 @@ function PipelineCard({
                     className="text-xs font-semibold uppercase tracking-wider cursor-pointer select-none"
                     style={{ color: "#f59e0b" }}
                   >
-                    CEO&apos;s Reasoning
+                    Forge&apos;s Reasoning
                   </summary>
                   <p
                     className="text-sm mt-2 leading-relaxed whitespace-pre-wrap"
@@ -331,9 +331,9 @@ function PipelineCard({
             const agentsMissing = !planMissing && pipeline.agent_sequence.length === 0;
             const planNotReady = planMissing || agentsMissing;
             const notReadyTooltip = planMissing
-              ? "Waiting for CEO to finish the execution plan..."
+              ? "Waiting for the execution plan to finish generating..."
               : agentsMissing
-                ? "CEO is selecting agents..."
+                ? "Forge is selecting agents..."
                 : undefined;
             return (
             <div className="mt-6 flex gap-3">
@@ -405,7 +405,7 @@ export default function PipelinesPage() {
   const activePipelines = pipelines.filter((p) => p.status !== "archived");
   const archivedPipelines = pipelines.filter((p) => p.status === "archived");
 
-  // Pipelines whose execution plan the CEO is still drafting: poll every 3s
+  // Pipelines whose execution plan is still being drafted: poll every 3s
   // until plan_md lands (the backend always terminates in a non-empty plan).
   const [pendingPlanIds, setPendingPlanIds] = useState<string[]>([]);
 
@@ -562,7 +562,7 @@ export default function PipelinesPage() {
             <EmptyState
               icon="⚙️"
               title="No pipelines yet."
-              description="Describe a project to get started — the CEO plans it, agents build it, you approve every step."
+              description="Describe a project to get started — Forge plans it, agents build it, you approve every step."
               action={{ label: "Create Pipeline", onClick: () => setShowCreateModal(true) }}
             />
           ) : (

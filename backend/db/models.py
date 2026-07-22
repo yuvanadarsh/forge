@@ -17,6 +17,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     SmallInteger,
+    String,
     Text,
     text,
 )
@@ -185,6 +186,9 @@ class Message(Base):
         ForeignKey("agents.id", ondelete="SET NULL")
     )
     gate_status: Mapped[str | None] = mapped_column(Text)
+    # One optional image attachment: raw base64 (no data: prefix) + MIME type.
+    image_data: Mapped[str | None] = mapped_column(Text)
+    image_media_type: Mapped[str | None] = mapped_column(String(50))
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))

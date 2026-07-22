@@ -34,7 +34,7 @@ def _spawn_background(coro) -> None:
 class PipelineCreate(BaseModel):
     title: str = Field(min_length=1)
     description: str = ""
-    # Empty is allowed only with auto_suggest — the CEO fills the sequence.
+    # Empty is allowed only with auto_suggest — auto-plan fills the sequence.
     agent_sequence: list[uuid.UUID] = Field(default_factory=list)
     plan_md: str = ""
     workspace_path: str | None = None  # None -> settings.workspace_root/<folder_name or slug>
@@ -102,7 +102,7 @@ async def list_pipelines(db: AsyncSession = Depends(get_db)) -> list[Pipeline]:
 @router.post("", response_model=PipelineOut, status_code=201)
 async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_db)) -> Pipeline:
     if body.auto_suggest:
-        agent_sequence: list[uuid.UUID] = []  # the CEO fills this in the background
+        agent_sequence: list[uuid.UUID] = []  # auto-plan fills this in the background
     else:
         if not body.agent_sequence:
             raise HTTPException(
@@ -143,8 +143,8 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
 
     # Background follow-ups; the frontend polls GET /api/pipelines/{id} until
     # plan_md is populated, and both flows always terminate in a non-empty plan.
-    # auto_suggest: CEO picks the sequence (Atlas creates gaps), then plans.
-    # Otherwise, an empty plan gets drafted by the CEO / first agent.
+    # auto_suggest: the planner picks the sequence (Atlas creates gaps), then
+    # plans. Otherwise, an empty plan gets drafted by the best available agent.
     if body.auto_suggest:
         _spawn_background(suggest_and_plan(pipeline.id))
     elif not pipeline.plan_md.strip():
@@ -181,7 +181,7 @@ async def approve_pipeline(pipeline_id: uuid.UUID, db: AsyncSession = Depends(ge
     if not pipeline.agent_sequence or not pipeline.plan_md.strip():
         raise HTTPException(
             status_code=409,
-            detail="Cannot approve — the execution plan is still generating. Wait for the CEO to finish before approving.",
+            detail="Cannot approve — the execution plan is still generating. Wait for planning to finish before approving.",
         )
 
     pipeline.status = "approved"

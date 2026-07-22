@@ -69,6 +69,7 @@ export default function AgentsPage() {
               agent={agent}
               currentTask={getCurrentTask(agent.id)}
               onDeleted={setToast}
+              onEdited={setToast}
               onError={setToast}
             />
           ))}

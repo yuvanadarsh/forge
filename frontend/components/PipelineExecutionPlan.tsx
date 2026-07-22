@@ -43,6 +43,9 @@ export default function PipelineExecutionPlan({ planMd, collapsed, onToggle }: P
                   strong: ({ children }) => <strong style={{ color: "#f5f5f5", fontWeight: 600 }}>{children}</strong>,
                   li: ({ children }) => <li className="mb-0.5 ml-3" style={{ listStyleType: "disc" }}>{children}</li>,
                   ul: ({ children }) => <ul className="mb-2 space-y-0.5">{children}</ul>,
+                  hr: () => (
+                    <hr style={{ border: "none", borderTop: "1px solid #2a2a2a", margin: "0.75em 0" }} />
+                  ),
                   input: ({ checked }) => (
                     <input
                       type="checkbox"
