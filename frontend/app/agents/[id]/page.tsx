@@ -62,22 +62,27 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
   const [editOpen, setEditOpen] = useState(false);
   const [runHistoryOpen, setRunHistoryOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const pending = sessionStorage.getItem("forge:toast");
+    if (pending) sessionStorage.removeItem("forge:toast");
+    return pending;
+  });
   const [taskPickerOpen, setTaskPickerOpen] = useState(false);
   const [taskPickerValue, setTaskPickerValue] = useState<string>("");
   const [creatingChat, setCreatingChat] = useState(false);
 
-  useEffect(() => {
-    const pending = sessionStorage.getItem("forge:toast");
-    if (pending) {
-      setToast(pending);
-      sessionStorage.removeItem("forge:toast");
-    }
-  }, []);
+  // Reset to the loading view during render when navigating between agent
+  // pages (same route, new params) — adjusting state here instead of in an
+  // effect avoids an extra render pass.
+  const [loadedForId, setLoadedForId] = useState(id);
+  if (loadedForId !== id) {
+    setLoadedForId(id);
+    setFetchState("loading");
+  }
 
   useEffect(() => {
     let cancelled = false;
-    setFetchState("loading");
     getAgent(id)
       .then((detail) => {
         if (cancelled) return;
