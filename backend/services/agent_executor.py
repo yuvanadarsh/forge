@@ -535,9 +535,15 @@ def _chat_turns(
     """
     turns: list[dict] = []
     for m in history:
-        if m.role not in ("user", "assistant") or not m.content.strip():
+        if m.role not in ("user", "assistant"):
             continue
-        content = m.content
+        content = m.content if m.content.strip() else ""
+        if m.image_data:
+            # Text stand-in; the actual image block is attached only to the
+            # latest user turn (chat_reply) so history stays lightweight.
+            content = f"[image attached] {content}".rstrip()
+        if not content.strip():
+            continue
         if m.role == "assistant" and m.agent_id in speaker_names:
             content = f"[{speaker_names[m.agent_id]}] {content}"
         turns.append({"role": m.role, "content": content})
@@ -614,11 +620,13 @@ async def chat_reply(
                 )
                 speaker_names = {a.id: a.name for a in agent_rows.scalars().all()}
 
-        latest_user = next(
-            (m.content for m in reversed(history) if m.role == "user"), ""
-        )
+        latest_user_msg = next((m for m in reversed(history) if m.role == "user"), None)
         memories = await memory_service.search_memories(
-            db, agent.id, latest_user, top_k=5, threshold=0.3
+            db,
+            agent.id,
+            latest_user_msg.content if latest_user_msg is not None else "",
+            top_k=5,
+            threshold=0.3,
         )
         client = await _anthropic_client(db)
         agent.status = "working"
@@ -650,6 +658,30 @@ async def chat_reply(
         merged.pop(0)
     if not merged:
         return None
+
+    # The just-sent user message may carry an image: send it as a real image
+    # content block ahead of the text (Anthropic multi-part content).
+    if (
+        latest_user_msg is not None
+        and latest_user_msg.image_data
+        and latest_user_msg.image_media_type
+        and merged[-1]["role"] == "user"
+        and isinstance(merged[-1]["content"], str)
+    ):
+        merged[-1] = {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": latest_user_msg.image_media_type,
+                        "data": latest_user_msg.image_data,
+                    },
+                },
+                {"type": "text", "text": merged[-1]["content"]},
+            ],
+        }
 
     # Eternal agents (Atlas) get create_agent in chat — their whole job is
     # designing agents conversationally. Regular agents stay tool-free here.

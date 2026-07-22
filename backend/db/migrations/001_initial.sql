@@ -128,6 +128,8 @@ CREATE TABLE messages (
     sender_agent_id UUID REFERENCES agents(id) ON DELETE SET NULL,  -- agent-to-agent relay source
     gate_status     TEXT
                     CHECK (gate_status IN ('pending', 'approved', 'changes_requested')),
+    image_data      TEXT,             -- optional attachment: raw base64, no data: prefix
+    image_media_type VARCHAR(50),
     input_tokens    INTEGER,
     output_tokens   INTEGER,
     cost_usd        NUMERIC(12, 6),

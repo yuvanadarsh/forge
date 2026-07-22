@@ -210,6 +210,9 @@ export interface BackendMessage {
   content: string;
   sender_agent_id: string | null;
   gate_status: "pending" | "approved" | "changes_requested" | null;
+  /** Optional image attachment: raw base64 (no data: prefix) + MIME type. */
+  image_data: string | null;
+  image_media_type: string | null;
   input_tokens: number | null;
   output_tokens: number | null;
   cost_usd: number | null;

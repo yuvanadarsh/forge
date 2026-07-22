@@ -170,8 +170,16 @@ export const createConversation = (payload: ConversationCreatePayload) =>
   post<BackendConversation>("/api/conversations", payload);
 export const listMessages = (conversationId: string, page = 1) =>
   get<MessagePage>(`/api/conversations/${conversationId}/messages${query({ page: String(page) })}`);
-export const sendMessage = (conversationId: string, content: string) =>
-  post<SendMessageResult>(`/api/conversations/${conversationId}/messages`, { content });
+export const sendMessage = (
+  conversationId: string,
+  content: string,
+  image?: { data: string; mediaType: string },
+) =>
+  post<SendMessageResult>(`/api/conversations/${conversationId}/messages`, {
+    content,
+    image_data: image?.data,
+    image_media_type: image?.mediaType,
+  });
 export const deleteConversation = (conversationId: string) =>
   del(`/api/conversations/${conversationId}`);
 export const updateConversation = (conversationId: string, title: string) =>

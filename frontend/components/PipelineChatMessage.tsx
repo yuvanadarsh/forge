@@ -3,6 +3,7 @@
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
+import ImageAttachment from "@/components/chat/ImageAttachment";
 import type { BackendAgent } from "@/types";
 
 export interface PipelineChatMsg {
@@ -17,6 +18,8 @@ export interface PipelineChatMsg {
   type?: "message" | "approval_gate";
   approvalSummary?: string;
   approvalWhatNext?: string;
+  imageData?: string;
+  imageMediaType?: string;
 }
 
 function timeStr(iso: string) {
@@ -89,6 +92,9 @@ export default function PipelineChatMessage({ msg, participants = [] }: Props) {
                 }
           }
         >
+          {msg.imageData && msg.imageMediaType && (
+            <ImageAttachment data={msg.imageData} mediaType={msg.imageMediaType} />
+          )}
           {isUser ? (
             <span className="whitespace-pre-wrap">{renderWithMentions(msg.content)}</span>
           ) : (

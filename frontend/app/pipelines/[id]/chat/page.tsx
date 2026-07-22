@@ -4,6 +4,7 @@ import { use, useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import PipelineChatMessage, { type PipelineChatMsg } from "@/components/PipelineChatMessage";
+import { type ChatImage } from "@/components/chat/ImageAttachment";
 import ToolCallCard, { summarizeToolArgs } from "@/components/ToolCallCard";
 import ApprovalGateCard from "@/components/ApprovalGateCard";
 import PipelineChatInput from "@/components/PipelineChatInput";
@@ -65,6 +66,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   // until the WebSocket confirms the resumed status (next 'status' event).
   const [isResuming, setIsResuming] = useState(false);
   const [input, setInput] = useState("");
+  const [chatImage, setChatImage] = useState<ChatImage | null>(null);
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [agentActivity, setAgentActivity] = useState<AgentActivity>({});
@@ -312,7 +314,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
     }
   }
 
-  async function sendUserMessage(text: string) {
+  async function sendUserMessage(text: string, image?: ChatImage) {
     if (!pipeline) return;
     let convId = conversationId;
     try {
@@ -321,7 +323,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         convId = created.id;
         setConversationId(convId);
       }
-      const result = await sendMessage(convId, text);
+      const result = await sendMessage(convId, text, image);
       setMessages((prev) => [
         ...prev,
         result.user_message,
@@ -335,9 +337,11 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
   function handleSend() {
     const text = input.trim();
-    if (!text) return;
+    const image = chatImage;
+    if (!text && !image) return;
     setInput("");
-    void sendUserMessage(text);
+    setChatImage(null);
+    void sendUserMessage(text, image ?? undefined);
   }
 
   if (fetchState === "notfound") notFound();
@@ -447,6 +451,8 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           approvalSummary: m.content,
           approvalWhatNext: "Approve to resume the pipeline from this gate.",
           gateStatus: m.gate_status,
+          imageData: m.image_data ?? undefined,
+          imageMediaType: m.image_media_type ?? undefined,
         } as PipelineChatMsg & { gateStatus?: string | null },
       };
     });
@@ -625,6 +631,9 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           participants={participants}
           disabled={!inputEnabled}
           placeholder={inputPlaceholder}
+          image={chatImage}
+          onImageChange={setChatImage}
+          onImageError={setToast}
         />
       </div>
 
