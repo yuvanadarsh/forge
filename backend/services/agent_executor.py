@@ -295,6 +295,32 @@ def _condense_context(prior_context: list[dict]) -> list[dict]:
     return [digest, *tail]
 
 
+def _normalize_turns(messages: list[dict]) -> list[dict]:
+    """Anthropic requires a user-first, alternating-role message list.
+
+    Prior context arrives as loose turns (project-scan summary, per-agent
+    handoff notes, the task itself) — merge consecutive same-role string
+    messages, and prepend a framing user turn when the list would otherwise
+    start with an assistant message (agent 2+ in a pipeline).
+    """
+    merged: list[dict] = []
+    for message in messages:
+        if (
+            merged
+            and merged[-1]["role"] == message["role"]
+            and isinstance(merged[-1]["content"], str)
+            and isinstance(message["content"], str)
+        ):
+            merged[-1]["content"] += f"\n\n{message['content']}"
+        else:
+            merged.append(dict(message))
+    if merged and merged[0]["role"] != "user":
+        merged.insert(
+            0, {"role": "user", "content": "Context from earlier in this pipeline run:"}
+        )
+    return merged
+
+
 def _build_system_prompt(
     agent: Agent, settings: Settings, workspace_path: str, memories: list
 ) -> str:
@@ -803,7 +829,8 @@ async def execute_agent(
             agent_row.last_active = datetime.now(timezone.utc)
             await db.commit()
 
-    # 2. Message list: condensed prior context + the task itself
+    # 2. Message list: condensed prior context + the task itself, normalized
+    # to the user-first alternating shape the API requires.
     system_prompt = _build_system_prompt(agent, settings, workspace_path, memories)
     messages: list[dict] = _condense_context(prior_context)
     messages.append(
@@ -813,6 +840,7 @@ async def execute_agent(
             "Complete this task using your tools. When finished, summarize what you did.",
         }
     )
+    messages = _normalize_turns(messages)
     settings_dict = {
         "terminal_execution": settings.terminal_execution,
         "strict_mode": settings.strict_mode,
