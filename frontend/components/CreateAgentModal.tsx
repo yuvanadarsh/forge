@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { createAgent, listApiKeys } from "@/lib/api";
 import type { ApiKeyInfo, BackendAgent } from "@/types";
 
-const PROVIDER_MODELS: { provider: string; label: string; models: string[] }[] = [
+export const PROVIDER_MODELS: { provider: string; label: string; models: string[] }[] = [
   { provider: "anthropic", label: "Anthropic", models: ["claude-sonnet-4-6", "claude-haiku-4-5", "claude-opus-4-6"] },
   { provider: "openai", label: "OpenAI", models: ["gpt-4o", "gpt-4o-mini"] },
   { provider: "gemini", label: "Gemini", models: ["gemini-2.5-pro"] },
   { provider: "deepseek", label: "DeepSeek", models: ["deepseek-chat"] },
 ];
 
-const COLOR_PRESETS = [
+export const COLOR_PRESETS = [
   "#6366f1",
   "#f59e0b",
   "#3b82f6",

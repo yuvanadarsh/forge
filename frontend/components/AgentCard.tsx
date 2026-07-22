@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
+import EditAgentModal from "@/components/agents/EditAgentModal";
 import { ApiError, deleteAgent } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { Agent, BackendAgent, BackendTask } from "@/types";
@@ -56,12 +57,14 @@ interface Props {
   agent: BackendAgent;
   currentTask?: BackendTask;
   onDeleted?: (message: string) => void;
+  onEdited?: (message: string) => void;
   onError?: (message: string) => void;
 }
 
-export default function AgentCard({ agent, currentTask, onDeleted, onError }: Props) {
+export default function AgentCard({ agent, currentTask, onDeleted, onEdited, onError }: Props) {
   const { dispatch } = useForge();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -170,6 +173,16 @@ export default function AgentCard({ agent, currentTask, onDeleted, onError }: Pr
             <button
               onClick={() => {
                 setMenuOpen(false);
+                setEditing(true);
+              }}
+              className="w-full text-left px-3 py-2 text-xs transition-colors duration-150 hover:bg-[#1f1f1f]"
+              style={{ color: "#f5f5f5" }}
+            >
+              Edit Agent
+            </button>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
                 setConfirming(true);
               }}
               className="w-full text-left px-3 py-2 text-xs transition-colors duration-150 hover:bg-[#1f1f1f]"
@@ -180,6 +193,15 @@ export default function AgentCard({ agent, currentTask, onDeleted, onError }: Pr
           </div>
         )}
       </div>
+      )}
+
+      {editing && (
+        <EditAgentModal
+          agent={agent}
+          onClose={() => setEditing(false)}
+          onSaved={(_, message) => onEdited?.(message)}
+          onError={onError}
+        />
       )}
 
       {confirming && (

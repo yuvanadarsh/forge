@@ -100,7 +100,7 @@ export interface AgentCreatePayload {
 }
 
 export type AgentUpdatePayload = Partial<
-  Pick<AgentCreatePayload, "name" | "role" | "specialty" | "system_prompt" | "model">
+  Pick<AgentCreatePayload, "name" | "role" | "specialty" | "system_prompt" | "model" | "avatar_color">
 >;
 
 export interface BackendPipeline {
