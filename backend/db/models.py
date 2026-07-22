@@ -187,11 +187,34 @@ class Message(Base):
     )
     gate_status: Mapped[str | None] = mapped_column(Text)
     # One optional image attachment: raw base64 (no data: prefix) + MIME type.
-    image_data: Mapped[str | None] = mapped_column(Text)
-    image_media_type: Mapped[str | None] = mapped_column(String(50))
+    # Legacy single-image columns — kept for messages written before the
+    # message_images table existed (migration 009); new messages use
+    # message_images instead. Explicit default=None so rows from
+    # pre-008 installs (before this column existed) still construct cleanly.
+    image_data: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    image_media_type: Mapped[str | None] = mapped_column(String(50), nullable=True, default=None)
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
     cost_usd: Mapped[Decimal | None] = mapped_column(Numeric(12, 6))
+    created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
+
+
+class MessageImage(Base):
+    """Up to 4 images per message (migration 009). Queried explicitly by
+    message_id — no relationship() is declared, matching this file's existing
+    convention of plain selects over ORM relationships."""
+
+    __tablename__ = "message_images"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
+    )
+    message_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("messages.id", ondelete="CASCADE")
+    )
+    image_data: Mapped[str] = mapped_column(Text)
+    media_type: Mapped[str] = mapped_column(String(50))
+    sort_order: Mapped[int] = mapped_column(Integer, server_default=text("0"))
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))
 
 

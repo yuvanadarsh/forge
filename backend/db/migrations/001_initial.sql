@@ -136,6 +136,20 @@ CREATE TABLE messages (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- ============================================================ message_images
+-- Up to 4 images per message; messages.image_data/image_media_type above are
+-- legacy single-image columns kept for backward compatibility (migration 009).
+CREATE TABLE message_images (
+    id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    message_id   UUID NOT NULL REFERENCES messages(id) ON DELETE CASCADE,
+    image_data   TEXT NOT NULL,
+    media_type   VARCHAR(50) NOT NULL,
+    sort_order   INTEGER NOT NULL DEFAULT 0,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_message_images_message_id ON message_images(message_id);
+
 -- ============================================================ token_usage (time series)
 CREATE TABLE token_usage (
     id              BIGSERIAL PRIMARY KEY,

@@ -7,3 +7,6 @@
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS image_data TEXT;
 
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS image_media_type VARCHAR(50);
+
+-- Existing rows get NULL for both new columns (default ALTER TABLE ADD
+-- COLUMN behavior) — old messages load fine with no attachment.
