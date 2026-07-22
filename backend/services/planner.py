@@ -1,13 +1,14 @@
-"""CEO planning services.
+"""Pipeline planning services.
 
 Runs as background tasks kicked off by POST /api/pipelines:
-- generate_execution_plan: fills pipeline.plan_md via the CEO agent (or the
-  first agent in the sequence). Always terminates in a populated plan_md —
-  LLM failures fall back to an editable default template so the frontend's
-  3-second poll never spins forever.
-- suggest_and_plan: auto_suggest mode — the CEO picks the agent sequence,
-  Atlas creates any missing agents, then plan generation runs. Same
-  guarantee: plan_md always ends up populated.
+- generate_execution_plan: fills pipeline.plan_md via the best available
+  planning agent (see _pick_planner — CEO-like roles preferred, but any
+  agent works). Always terminates in a populated plan_md — LLM failures
+  fall back to an editable default template so the frontend's 3-second
+  poll never spins forever.
+- suggest_and_plan: auto_suggest mode — the planner picks the agent
+  sequence, Atlas creates any missing agents, then plan generation runs.
+  Same guarantee: plan_md always ends up populated.
 
 No WebSocket notification is sent here: streams are keyed by pipeline_run_id
 and no run exists before approval — the frontend polls GET /api/pipelines/{id}.
@@ -54,8 +55,8 @@ DEFAULT_PLAN_TEMPLATE = """# Execution Plan: {title}
 ## Success Criteria
 - [ ] The objective above is met and verified
 
-_Starter template — no plan could be generated automatically (no CEO agent
-or no working API key). Edit it before approving the pipeline._"""
+_Starter template — no plan could be generated automatically (no agents
+yet or no working API key). Edit it before approving the pipeline._"""
 
 
 async def _agents_in_sequence(db, pipeline: Pipeline) -> list[Agent]:
@@ -67,17 +68,45 @@ async def _agents_in_sequence(db, pipeline: Pipeline) -> list[Agent]:
     return [by_id[agent_id] for agent_id in pipeline.agent_sequence if agent_id in by_id]
 
 
-async def _pick_planner(db, sequence_agents: list[Agent]) -> Agent | None:
-    """CEO in the sequence, else any CEO on the roster, else the first agent."""
-    for agent in sequence_agents:
-        if agent.role.strip().lower() == "ceo":
-            return agent
-    ceo = (
-        await db.execute(select(Agent).where(Agent.role.ilike("ceo")).order_by(Agent.created_at))
-    ).scalars().first()
-    if ceo is not None:
-        return ceo
-    return sequence_agents[0] if sequence_agents else None
+# Role keywords that make an agent a good planner, in preference order.
+PLANNER_ROLE_PREFERENCES: tuple[tuple[str, ...], ...] = (("ceo",), ("director", "lead"))
+
+
+async def _pick_planner(db, candidate_agents: list[Agent]) -> Agent | None:
+    """Best available planning agent — auto-plan never requires a CEO.
+
+    Preference: a role containing 'CEO', then 'Director' or 'Lead' — checked
+    among the candidates first, then across the whole non-eternal roster —
+    else the first candidate, else the oldest agent ever created. Returns
+    None only when no agents exist at all.
+    """
+    candidates = [a for a in candidate_agents if not a.is_eternal]
+
+    def first_match(agents: list[Agent], needles: tuple[str, ...]) -> Agent | None:
+        for agent in agents:
+            role = agent.role.lower()
+            if any(needle in role for needle in needles):
+                return agent
+        return None
+
+    for needles in PLANNER_ROLE_PREFERENCES:
+        found = first_match(candidates, needles)
+        if found is not None:
+            return found
+    roster = list(
+        (
+            await db.execute(
+                select(Agent).where(Agent.is_eternal.is_(False)).order_by(Agent.created_at)
+            )
+        ).scalars().all()
+    )
+    for needles in PLANNER_ROLE_PREFERENCES:
+        found = first_match(roster, needles)
+        if found is not None:
+            return found
+    if candidates:
+        return candidates[0]
+    return roster[0] if roster else None
 
 
 def _plan_prompt(pipeline: Pipeline, agents: list[Agent]) -> str:
@@ -289,8 +318,8 @@ async def _atlas_create_missing(client, missing: dict) -> uuid.UUID | None:
 
 
 async def suggest_and_plan(pipeline_id: uuid.UUID) -> None:
-    """Background task for auto_suggest pipelines: CEO picks the sequence,
-    Atlas fills gaps, then the normal plan generation runs."""
+    """Background task for auto_suggest pipelines: the best available
+    planner picks the sequence, Atlas fills gaps, then plan generation runs."""
     session_factory = get_session_factory()
     async with session_factory() as db:
         pipeline = await db.get(Pipeline, pipeline_id)
@@ -337,7 +366,7 @@ async def suggest_and_plan(pipeline_id: uuid.UUID) -> None:
             text = "".join(b.text for b in response.content if b.type == "text")
             data = _parse_suggestion(text)
             if data is None:
-                raise ValueError("CEO response was not valid JSON")
+                raise ValueError("Planner response was not valid JSON")
 
             roster_ids = {agent.id for agent in roster}
             for raw_id in data.get("agent_sequence", []):

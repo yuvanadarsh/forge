@@ -118,7 +118,7 @@ export interface BackendPipeline {
   agent_sequence: string[];
   created_by: string | null;
   plan_md: string;
-  /** CEO's reasoning when the pipeline was auto-suggested, else null. */
+  /** Planner's reasoning when the pipeline was auto-planned, else null. */
   suggestion_reasoning: string | null;
   workspace_path: string;
   approved_at: string | null;
@@ -151,7 +151,7 @@ export interface BackendPipelineDetail extends BackendPipeline {
 export interface PipelineCreatePayload {
   title: string;
   description?: string;
-  /** May be empty only with auto_suggest — the CEO fills the sequence. */
+  /** May be empty only with auto_suggest — auto-plan fills the sequence. */
   agent_sequence: string[];
   plan_md?: string;
   workspace_path?: string;
