@@ -68,6 +68,13 @@ Real-key verification DONE (Session 12) — a live Anthropic key now sits in
 the local vault; a full pipeline run, post-completion chat replies, and
 image content blocks were all verified against the real API.
 
+SESSION 13 (2026-07-22) — CHAT POLISH, MULTI-IMAGE: post-completion
+pipeline chat gets a poll-based fallback so a slow reply that outlasts the
+client still lands without a refresh, multi-image chat attachments
+(migration 009, message_images table), client-side image compression,
+GFM table/inline-code markdown styling, and the last pre-existing ESLint
+errors. New sections below + Session 13 history entry.
+
 SESSION 11 (2026-07-16) — FINAL POLISH, SHIPPED PUBLICLY: persistent
 post-completion pipeline chat, persisted tool call history (role
 'tool_call' + migration 007), agent status dots/typing indicator,
@@ -253,19 +260,43 @@ history entry.
 - Image messages appear in history as "[image attached] <text>"; only the
   newest user message is sent as a real image content block (payload size)
 
-## Image Attachments (Session 12)
+## Image Attachments (Session 12; multi-image in Session 13)
 
 - messages.image_data (raw base64, NO data: prefix) + image_media_type
-  (VARCHAR(50)); migration 008, 001_initial.sql kept in step
-- POST /conversations/{id}/messages validates PNG/JPEG/GIF/WebP, caps at
+  (VARCHAR(50)); migration 008, 001_initial.sql kept in step. Legacy
+  single-image columns only — see message_images below for current writes.
+- ~~POST /conversations/{id}/messages validates PNG/JPEG/GIF/WebP, caps at
   10M base64 chars (backend backstop; the 5MB frontend cap is the real
   limit, matching Anthropic's per-image API limit); empty content is
-  allowed when an image is attached ("📷 Image" becomes last_message)
+  allowed when an image is attached ("📷 Image" becomes last_message)~~
+- Session 13: message_images table (migration 009, one row per image, FK
+  ON DELETE CASCADE, sort_order) — up to 4 images per message. Legacy
+  messages.image_data/image_media_type stay for pre-009 rows only; new
+  writes always go through message_images. MessageCreate.images is a list
+  (the old singular image_data/image_media_type fields still parse for
+  older clients and fold into the same list). GET messages serializes
+  defensively per-row (try/except, logs, falls back to no image) so a
+  pre-008 install missing the legacy columns entirely doesn't 500 the
+  whole page.
+- 10M base64 chars stays the per-image backend backstop; the frontend now
+  compresses client-side (canvas resize to max 1200x1200, JPEG @ 0.85) so
+  the real ceiling is a 10MB *input* file, not 5MB — compression brings
+  almost everything under 1MB before it's ever sent.
 - components/chat/ImageAttachment.tsx: AttachImageButton (Paperclip via
-  lucide-react — new dependency), staged ImagePreview with remove ✕, and
-  the message thumbnail (≤400px, click-to-expand lightbox at z-40)
-- Both chat inputs have the paperclip (agent chat inline input +
-  PipelineChatInput via optional image/onImageChange/onImageError props)
+  lucide-react, `multiple` + remainingSlots prop), ImagePreviewRow (staged
+  thumbnail row, each independently removable, shows compressed size), and
+  ImageAttachmentGroup for rendering a message's images in order. Message
+  thumbnails are 240px max-width (was 400px), click-to-expand lightbox at
+  z-40, Escape closes it.
+- Both chat inputs support drag-and-drop onto the compose box (dashed
+  amber border while dragging) in addition to the attach button; both cap
+  at 4 images per message across click + drop combined.
+- agent_executor.chat_reply fetches message_images for every user turn in
+  a pipeline follow-up's history (for the "[image attached]" text
+  stand-in) and for the latest turn (real image content blocks — multiple
+  images send as multiple blocks ahead of the text block, Anthropic's
+  multi-part content format); falls back to the legacy single-image
+  column when a row predates 009.
 - Images flow only through chat (chat_reply); pipeline/task executions do
   not receive image content
 
@@ -474,6 +505,7 @@ backend/
                                        suggestion_reasoning, archive, cost limits (Session 9)
     migrations/007_tool_call_messages.sql — role CHECK gains 'tool_call' (Session 11)
     migrations/008_chat_images.sql   — messages.image_data + image_media_type (Session 12)
+    migrations/009_message_images.sql — message_images table, multi-image (Session 13)
     seeds/001_eternal_agents.sql     — Atlas; run on every startup (Session 9)
   requirements.txt
   Dockerfile
@@ -840,6 +872,52 @@ backend/
 - Pre-existing eslint errors (react-hooks/set-state-in-effect ×2 in
   agents/[id]/page.tsx, from Session 6/8 code) are untouched — not
   introduced this session, not this session's scope
+
+### Session 13 (2026-07-22) — Chat refresh fix, multi-image, markdown polish, ESLint
+
+- The two agents/[id]/page.tsx eslint errors flagged as "untouched" in
+  Session 12 are fixed now: the sessionStorage toast read moved to a lazy
+  useState initializer (was a setState call inside a mount effect), and
+  the loading-state reset on agent-id change moved to a render-phase
+  state adjustment (React's documented pattern for resetting state on a
+  prop change) instead of the top of the data-fetching effect. Other
+  react-hooks/set-state-in-effect violations found elsewhere in the repo
+  during this session's lint pass (settings/page.tsx, CostAnalyticsGraph,
+  OnboardingBanner, TokenUsageGraph, the mention-detection effect in
+  PipelineChatInput, the messages-loading effect in the agent conversation
+  page) are pre-existing and out of this session's scope — confirmed
+  against git history before leaving them alone.
+- Multi-image chat: went with a dedicated message_images table (migration
+  009) over cramming an array into the existing single-image columns or
+  sending each staged image as its own message — matches how Slack/
+  Discord/iMessage model multi-image messages and keeps context injection
+  (pipeline follow-up chat) working on whole messages rather than
+  fragmenting a user's turn across several DB rows. Legacy image_data/
+  image_media_type columns are kept read-only for pre-009 rows; every new
+  write goes through message_images only.
+- Fix 1's "message appears but the reply never shows" bug doesn't come
+  from a missing await — chat_reply already runs synchronously inside the
+  POST handler and the original code already appended assistant_message
+  from that single response. The real gap: a sufficiently slow generation
+  (a large pipeline transcript, Session 12's whole-run context injection)
+  can outlast the client's patience or a reverse proxy's timeout, in which
+  case the reply still lands in Postgres but never reaches the browser.
+  The fix is a fallback poll (2s interval, 60s timeout) that only kicks in
+  when the response comes back without an assistant_message and without an
+  error — the common case still resolves in the original request.
+- remarkGfm was already wired into PipelineExecutionPlan but missing from
+  both chat message renderers — without it, GFM tables never parsed at
+  all (pipe characters just sat in a paragraph as plain text), so "broken
+  tables" wasn't literally reproducible before this session. Adding
+  remarkGfm plus styled table/thead/tbody/th/td components is what makes
+  4A (invalid tables stay plain text) and 4E (valid tables render styled)
+  both true at once — GFM's own grammar already requires a header-
+  separator row before it treats anything as a table, so no custom
+  validator was needed on top.
+- Table/inline-code styling lives in globals.css under .markdown-body
+  (shared class) rather than per-surface component overrides, so
+  PipelineExecutionPlan picked up the same look by just adding the class
+  — one CSS change instead of three duplicated component trees.
 
 ## CLAUDE.md Rules
 
