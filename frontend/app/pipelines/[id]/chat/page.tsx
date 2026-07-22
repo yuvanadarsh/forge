@@ -66,10 +66,14 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   // until the WebSocket confirms the resumed status (next 'status' event).
   const [isResuming, setIsResuming] = useState(false);
   const [input, setInput] = useState("");
-  const [chatImage, setChatImage] = useState<ChatImage | null>(null);
+  const [chatImages, setChatImages] = useState<ChatImage[]>([]);
   const [planCollapsed, setPlanCollapsed] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [agentActivity, setAgentActivity] = useState<AgentActivity>({});
+  // True while waiting on a post-completion reply that didn't come back in
+  // the same request/response (e.g. a slow generation the client timed out
+  // on) — drives the "Agent is thinking…" indicator during the fallback poll.
+  const [awaitingReply, setAwaitingReply] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const activityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -119,12 +123,54 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
 
   const reloadMessages = useCallback(async (convId: string) => {
     try {
-      const first = await listMessages(convId, 1);
-      const lastPage = Math.max(1, Math.ceil(first.total / first.page_size));
-      const page = lastPage === 1 ? first : await listMessages(convId, lastPage);
+      let page = await listMessages(convId, 1);
+      let lastPage = Math.max(1, Math.ceil(page.total / page.page_size));
+      if (lastPage > 1) page = await listMessages(convId, lastPage);
+      // A conversation that should have history (this pipeline already has
+      // one) but comes back empty may just be racing a still-committing
+      // write — retry once after a short delay before trusting it's empty.
+      if (page.items.length === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        page = await listMessages(convId, 1);
+        lastPage = Math.max(1, Math.ceil(page.total / page.page_size));
+        if (lastPage > 1) page = await listMessages(convId, lastPage);
+      }
       setMessages(page.items);
     } catch {
       // non-fatal — live stream still renders
+    }
+  }, []);
+
+  // Poll for a reply that didn't come back in the sendMessage response
+  // itself (e.g. the client gave up waiting on a slow generation). Stops as
+  // soon as a new assistant message newer than `afterIso` shows up, or after
+  // POLL_TIMEOUT_MS with no luck.
+  const pollForReply = useCallback(async (convId: string, afterIso: string) => {
+    const POLL_INTERVAL_MS = 2000;
+    const POLL_TIMEOUT_MS = 60_000;
+    const deadline = Date.now() + POLL_TIMEOUT_MS;
+    setAwaitingReply(true);
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+        try {
+          const first = await listMessages(convId, 1);
+          const lastPage = Math.max(1, Math.ceil(first.total / first.page_size));
+          const page = lastPage === 1 ? first : await listMessages(convId, lastPage);
+          const reply = page.items.find(
+            (m) => m.role === "assistant" && new Date(m.created_at).getTime() > new Date(afterIso).getTime(),
+          );
+          if (reply) {
+            setMessages((prev) => (prev.some((m) => m.id === reply.id) ? prev : [...prev, reply]));
+            return;
+          }
+        } catch {
+          // transient poll failure — keep trying until the deadline
+        }
+      }
+      setToast("Still waiting on the agent's reply — it may still complete in the background.");
+    } finally {
+      setAwaitingReply(false);
     }
   }, []);
 
@@ -331,7 +377,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
     }
   }
 
-  async function sendUserMessage(text: string, image?: ChatImage) {
+  async function sendUserMessage(text: string, images?: ChatImage[]) {
     if (!pipeline) return;
     let convId = conversationId;
     try {
@@ -340,25 +386,33 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
         convId = created.id;
         setConversationId(convId);
       }
-      const result = await sendMessage(convId, text, image);
+      const result = await sendMessage(convId, text, images);
       setMessages((prev) => [
         ...prev,
         result.user_message,
         ...(result.assistant_message ? [result.assistant_message] : []),
       ]);
       if (result.error) setToast(result.error);
+      // The assistant reply is normally computed within the same request —
+      // if it's missing (a completed/failed pipeline conversation always
+      // replies), the reply may still be running server-side after a client
+      // timeout. Fall back to polling instead of leaving the chat stuck.
+      if (!result.assistant_message && !result.error) {
+        void pollForReply(convId, result.user_message.created_at);
+      }
     } catch (err) {
       setToast(`Send failed: ${err instanceof Error ? err.message : "backend unreachable"}`);
+      if (convId) void pollForReply(convId, new Date().toISOString());
     }
   }
 
   function handleSend() {
     const text = input.trim();
-    const image = chatImage;
-    if (!text && !image) return;
+    const images = chatImages;
+    if (!text && images.length === 0) return;
     setInput("");
-    setChatImage(null);
-    void sendUserMessage(text, image ?? undefined);
+    setChatImages([]);
+    void sendUserMessage(text, images.length > 0 ? images : undefined);
   }
 
   if (fetchState === "notfound") notFound();
@@ -478,6 +532,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           gateStatus: m.gate_status,
           imageData: m.image_data ?? undefined,
           imageMediaType: m.image_media_type ?? undefined,
+          images: m.images.map((img) => ({ data: img.image_data, mediaType: img.media_type })),
         } as PipelineChatMsg & { gateStatus?: string | null },
       };
     });
@@ -632,6 +687,11 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
               </div>
             );
           })}
+          {awaitingReply && (
+            <div className="text-center text-xs py-2 animate-pulse" style={{ color: "#71717a" }}>
+              Agent is thinking…
+            </div>
+          )}
           <div ref={bottomRef} />
         </div>
 
@@ -663,8 +723,8 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           participants={participants}
           disabled={!inputEnabled}
           placeholder={inputPlaceholder}
-          image={chatImage}
-          onImageChange={setChatImage}
+          images={chatImages}
+          onImagesChange={setChatImages}
           onImageError={setToast}
         />
       </div>
