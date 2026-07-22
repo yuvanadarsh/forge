@@ -202,6 +202,12 @@ export interface ConversationCreatePayload {
   pipeline_id?: string;
 }
 
+export interface BackendMessageImage {
+  id: string;
+  image_data: string;
+  media_type: string;
+}
+
 export interface BackendMessage {
   id: string;
   conversation_id: string;
@@ -210,9 +216,12 @@ export interface BackendMessage {
   content: string;
   sender_agent_id: string | null;
   gate_status: "pending" | "approved" | "changes_requested" | null;
-  /** Optional image attachment: raw base64 (no data: prefix) + MIME type. */
+  /** Legacy single-image attachment (pre-migration-009 rows): raw base64
+   *  (no data: prefix) + MIME type. New rows use `images` instead. */
   image_data: string | null;
   image_media_type: string | null;
+  /** Up to 4 images per message (migration 009), in send order. */
+  images: BackendMessageImage[];
   input_tokens: number | null;
   output_tokens: number | null;
   cost_usd: number | null;

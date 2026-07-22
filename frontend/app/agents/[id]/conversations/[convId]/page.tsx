@@ -5,11 +5,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import remarkGfm from "remark-gfm";
 import { notFound } from "next/navigation";
 import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
-import ImageAttachment, {
+import {
   AttachImageButton,
-  ImagePreview,
+  fileToChatImage,
+  imageFilesFromDrop,
+  ImageAttachmentGroup,
+  ImagePreviewRow,
+  MAX_IMAGES_PER_MESSAGE,
   type ChatImage,
 } from "@/components/chat/ImageAttachment";
 import Toast from "@/components/Toast";
@@ -51,14 +56,17 @@ export default function ConversationPage({
   const [oldestLoadedPage, setOldestLoadedPage] = useState(1);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [pendingText, setPendingText] = useState<string | null>(null);
-  const [pendingImage, setPendingImage] = useState<ChatImage | null>(null);
+  const [pendingImages, setPendingImages] = useState<ChatImage[]>([]);
   const [thinking, setThinking] = useState(false);
   const [input, setInput] = useState("");
-  const [image, setImage] = useState<ChatImage | null>(null);
+  const [images, setImages] = useState<ChatImage[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
+  const [dragActive, setDragActive] = useState(false);
+  const [inputFocused, setInputFocused] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const conversation = agentConvos.find((c) => c.id === convId) ?? null;
 
@@ -126,12 +134,12 @@ export default function ConversationPage({
 
   async function handleSend() {
     const text = input.trim();
-    const attachment = image;
-    if ((!text && !attachment) || pendingText !== null) return;
+    const attachments = images;
+    if ((!text && attachments.length === 0) || pendingText !== null) return;
     setInput("");
-    setImage(null);
+    setImages([]);
     setPendingText(text);
-    setPendingImage(attachment);
+    setPendingImages(attachments);
     setThinking(true);
     try {
       let targetId = convId;
@@ -139,14 +147,14 @@ export default function ConversationPage({
         const created = await createConversation({ title: "General Chat", agent_id: id });
         targetId = created.id;
       }
-      const result = await sendMessage(targetId, text, attachment ?? undefined);
+      const result = await sendMessage(targetId, text, attachments.length > 0 ? attachments : undefined);
       setMessages((prev) => [
         ...prev,
         result.user_message,
         ...(result.assistant_message ? [result.assistant_message] : []),
       ]);
       setPendingText(null);
-      setPendingImage(null);
+      setPendingImages([]);
       if (result.error) setToast(result.error);
       if (isNew) {
         router.replace(`/agents/${id}/conversations/${targetId}`);
@@ -171,9 +179,9 @@ export default function ConversationPage({
       }
     } catch (err) {
       setPendingText(null);
-      setPendingImage(null);
+      setPendingImages([]);
       setInput(text); // give the draft back
-      setImage(attachment);
+      setImages(attachments);
       setToast(`Send failed: ${err instanceof Error ? err.message : "backend unreachable"}`);
     } finally {
       setThinking(false);
@@ -368,7 +376,7 @@ export default function ConversationPage({
                 >
                   {isUser ? "Y" : agent.name[0]}
                 </div>
-                <div className={`max-w-[70%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-1`}>
+                <div className={`group max-w-[70%] ${isUser ? "items-end" : "items-start"} flex flex-col gap-1`}>
                   <div
                     className="px-4 py-3 text-sm leading-relaxed markdown-body"
                     style={
@@ -377,18 +385,29 @@ export default function ConversationPage({
                         : { background: "#111111", color: "#f5f5f5", border: "1px solid #1f1f1f", borderRadius: "4px 18px 18px 18px" }
                     }
                   >
-                    {msg.image_data && msg.image_media_type && (
-                      <ImageAttachment data={msg.image_data} mediaType={msg.image_media_type} />
+                    {(msg.images.length > 0 || (msg.image_data && msg.image_media_type)) && (
+                      <div className="mb-2">
+                        <ImageAttachmentGroup
+                          images={
+                            msg.images.length > 0
+                              ? msg.images.map((img) => ({ data: img.image_data, mediaType: img.media_type }))
+                              : [{ data: msg.image_data as string, mediaType: msg.image_media_type as string }]
+                          }
+                        />
+                      </div>
                     )}
                     {isUser ? (
                       <span className="whitespace-pre-wrap">{msg.content}</span>
                     ) : (
-                      <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={chatMarkdownComponents}>
+                      <ReactMarkdown rehypePlugins={[rehypeHighlight]} remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
                         {msg.content}
                       </ReactMarkdown>
                     )}
                   </div>
-                  <div className="text-[10px] px-1" style={{ color: "#3f3f46" }}>
+                  <div
+                    className="text-[10px] px-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+                    style={{ color: "#3f3f46" }}
+                  >
                     {timeStr(msg.created_at)}
                   </div>
                 </div>
@@ -410,8 +429,10 @@ export default function ConversationPage({
                   className="px-4 py-3 text-sm leading-relaxed"
                   style={{ background: "#1f1f1f", color: "#f5f5f5", borderRadius: "18px 4px 18px 18px" }}
                 >
-                  {pendingImage && (
-                    <ImageAttachment data={pendingImage.data} mediaType={pendingImage.mediaType} />
+                  {pendingImages.length > 0 && (
+                    <div className="mb-2">
+                      <ImageAttachmentGroup images={pendingImages} />
+                    </div>
                   )}
                   <span className="whitespace-pre-wrap">{pendingText}</span>
                 </div>
@@ -459,36 +480,79 @@ export default function ConversationPage({
         </div>
 
         {/* Input */}
-        <div className="px-6 py-4 border-t shrink-0" style={{ borderColor: "#1f1f1f" }}>
-          {image && <ImagePreview image={image} onRemove={() => setImage(null)} />}
-          <div className="flex gap-3">
+        <div
+          className="px-6 py-4 border-t shrink-0"
+          style={{
+            borderColor: dragActive ? "#f59e0b" : "#1f1f1f",
+            borderStyle: dragActive ? "dashed" : "solid",
+          }}
+          onDragOver={(e) => {
+            if (pendingText !== null) return;
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => {
+            if (pendingText !== null) return;
+            e.preventDefault();
+            setDragActive(false);
+            const files = imageFilesFromDrop(e).slice(0, Math.max(0, MAX_IMAGES_PER_MESSAGE - images.length));
+            if (files.length === 0) return;
+            Promise.all(files.map(fileToChatImage))
+              .then((added) => setImages((prev) => [...prev, ...added]))
+              .catch((err) => setToast(err instanceof Error ? err.message : "Could not attach image"));
+          }}
+        >
+          <ImagePreviewRow images={images} onRemove={(index) => setImages((prev) => prev.filter((_, i) => i !== index))} />
+          <div className="flex gap-3 items-end">
             <AttachImageButton
-              onSelect={setImage}
+              onSelect={(added) => setImages((prev) => [...prev, ...added])}
               onError={setToast}
               disabled={pendingText !== null}
+              remainingSlots={MAX_IMAGES_PER_MESSAGE - images.length}
             />
-            <input
+            <textarea
+              ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
+              rows={1}
+              onChange={(e) => {
+                setInput(e.target.value);
+                const el = textareaRef.current;
+                if (!el) return;
+                el.style.height = "auto";
+                const maxHeight = 6 * 20;
+                el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+                el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSend();
+                }
+              }}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setInputFocused(false)}
               placeholder={`Message ${agent.name}...`}
-              className="flex-1 px-4 py-3 rounded-xl text-sm outline-none border transition-colors duration-150"
-              style={{ background: "#111111", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-              onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
-              onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+              className="flex-1 px-4 py-3 rounded-xl text-sm outline-none border transition-colors duration-150 resize-none"
+              style={{ background: "#111111", borderColor: inputFocused ? "#f59e0b" : "#1f1f1f", color: "#f5f5f5", lineHeight: "20px" }}
             />
             <button
               onClick={handleSend}
-              disabled={(!input.trim() && !image) || pendingText !== null}
-              className="px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150"
+              disabled={(!input.trim() && images.length === 0) || pendingText !== null}
+              className="px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 shrink-0"
               style={{
-                background: (input.trim() || image) && pendingText === null ? "#f59e0b" : "#1f1f1f",
-                color: (input.trim() || image) && pendingText === null ? "#0a0a0a" : "#3f3f46",
+                background: (input.trim() || images.length > 0) && pendingText === null ? "#f59e0b" : "#1f1f1f",
+                color: (input.trim() || images.length > 0) && pendingText === null ? "#0a0a0a" : "#3f3f46",
               }}
             >
               Send
             </button>
           </div>
+          {inputFocused && (
+            <div className="text-[10px] px-1 pt-1.5" style={{ color: "#3f3f46" }}>
+              Enter to send · Shift+Enter for new line
+            </div>
+          )}
         </div>
       </div>
 

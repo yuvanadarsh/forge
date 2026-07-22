@@ -2,8 +2,9 @@
 
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import remarkGfm from "remark-gfm";
 import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
-import ImageAttachment from "@/components/chat/ImageAttachment";
+import { ImageAttachmentGroup } from "@/components/chat/ImageAttachment";
 import type { BackendAgent } from "@/types";
 
 export interface PipelineChatMsg {
@@ -18,8 +19,10 @@ export interface PipelineChatMsg {
   type?: "message" | "approval_gate";
   approvalSummary?: string;
   approvalWhatNext?: string;
+  /** Legacy single-image fallback — used only when `images` is empty. */
   imageData?: string;
   imageMediaType?: string;
+  images?: { data: string; mediaType: string }[];
 }
 
 function timeStr(iso: string) {
@@ -46,6 +49,13 @@ export default function PipelineChatMessage({ msg, participants = [] }: Props) {
   // Determine if this is a relay (agent sending to another agent)
   const isRelay = !isUser && !!msg.relay_to_agent_name;
 
+  const images =
+    msg.images && msg.images.length > 0
+      ? msg.images
+      : msg.imageData && msg.imageMediaType
+        ? [{ data: msg.imageData, mediaType: msg.imageMediaType }]
+        : [];
+
   return (
     <div className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}>
       <div className="flex flex-col items-center gap-1 shrink-0">
@@ -66,7 +76,7 @@ export default function PipelineChatMessage({ msg, participants = [] }: Props) {
         )}
       </div>
 
-      <div className={`max-w-[70%] flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
+      <div className={`group max-w-[70%] flex flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}>
         {!isUser && msg.agentName && (
           <div className="flex items-center gap-2 px-1">
             <span className="text-[10px] font-medium" style={{ color: "#71717a" }}>
@@ -92,18 +102,23 @@ export default function PipelineChatMessage({ msg, participants = [] }: Props) {
                 }
           }
         >
-          {msg.imageData && msg.imageMediaType && (
-            <ImageAttachment data={msg.imageData} mediaType={msg.imageMediaType} />
+          {images.length > 0 && (
+            <div className="mb-2">
+              <ImageAttachmentGroup images={images} />
+            </div>
           )}
           {isUser ? (
             <span className="whitespace-pre-wrap">{renderWithMentions(msg.content)}</span>
           ) : (
-            <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={chatMarkdownComponents}>
+            <ReactMarkdown rehypePlugins={[rehypeHighlight]} remarkPlugins={[remarkGfm]} components={chatMarkdownComponents}>
               {msg.content}
             </ReactMarkdown>
           )}
         </div>
-        <div className="text-[10px] px-1" style={{ color: "#3f3f46" }}>
+        <div
+          className="text-[10px] px-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150"
+          style={{ color: "#3f3f46" }}
+        >
           {timeStr(msg.created_at)}
         </div>
       </div>
