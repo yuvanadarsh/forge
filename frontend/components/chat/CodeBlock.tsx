@@ -94,8 +94,20 @@ export default function CodeBlock({ language, children }: CodeBlockProps) {
 }
 
 /** Shared ReactMarkdown overrides for chat renderers: Claude-style code
- *  blocks with a header bar + copy button, and a subtle solid `---` rule. */
+ *  blocks with a header bar + copy button, a subtle solid `---` rule, inline
+ *  code styling, and GFM table styling (used with remarkGfm — that plugin
+ *  already requires a proper header-separator row before it parses anything
+ *  as a table, so mid-sentence `|` characters or a missing `---` row stay
+ *  plain text instead of becoming a broken table). */
 export const chatMarkdownComponents: Components = {
   pre: ({ children }) => <CodeBlock language={languageOf(children)}>{children}</CodeBlock>,
   hr: () => <hr style={{ border: "none", borderTop: "1px solid #2a2a2a", margin: "1em 0" }} />,
+  // Cell/row styling (header background, alternating rows, borders) lives in
+  // globals.css under .markdown-body — this only adds the overflow-x wrapper
+  // so wide tables scroll instead of blowing out the chat bubble.
+  table: ({ children }) => (
+    <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "#2a2a2a" }}>
+      <table>{children}</table>
+    </div>
+  ),
 };
