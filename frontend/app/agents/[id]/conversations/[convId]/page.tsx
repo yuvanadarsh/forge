@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import { notFound } from "next/navigation";
+import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
 import Toast from "@/components/Toast";
 import ConversationMenu from "@/components/ConversationMenu";
 import {
@@ -366,7 +367,7 @@ export default function ConversationPage({
                     {isUser ? (
                       <span className="whitespace-pre-wrap">{msg.content}</span>
                     ) : (
-                      <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+                      <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={chatMarkdownComponents}>
                         {msg.content}
                       </ReactMarkdown>
                     )}

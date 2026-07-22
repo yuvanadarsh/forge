@@ -2,6 +2,7 @@
 
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
+import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
 import type { BackendAgent } from "@/types";
 
 export interface PipelineChatMsg {
@@ -91,7 +92,7 @@ export default function PipelineChatMessage({ msg, participants = [] }: Props) {
           {isUser ? (
             <span className="whitespace-pre-wrap">{renderWithMentions(msg.content)}</span>
           ) : (
-            <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
+            <ReactMarkdown rehypePlugins={[rehypeHighlight]} components={chatMarkdownComponents}>
               {msg.content}
             </ReactMarkdown>
           )}

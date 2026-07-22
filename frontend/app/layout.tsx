@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ErrorBanner from "@/components/ErrorBanner";
 import Sidebar from "@/components/Sidebar";
@@ -15,6 +15,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+// Code blocks in chat messages (components/chat/CodeBlock.tsx).
+const jetbrainsMono = JetBrains_Mono({
+  variable: "--font-jetbrains-mono",
+  subsets: ["latin"],
+});
+
 export const metadata: Metadata = {
   title: "Forge — Multi-Agent AI Orchestration",
   description: "Spawn specialized AI agents, assign tasks, and watch them execute pipelines.",
@@ -26,7 +32,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
+    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} ${jetbrainsMono.variable} h-full`}>
       <body className="h-full flex" style={{ background: "#0a0a0a", color: "#f5f5f5" }}>
         <ForgeProvider>
           <Sidebar />
