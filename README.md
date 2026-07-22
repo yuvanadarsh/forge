@@ -42,8 +42,17 @@ To update later: `cd ~/.forge && docker compose pull && docker compose up -d`
 - [x] Single-agent task execution — the Run button on any task executes its
       assigned agent against a real workspace
 - [x] Multi-agent pipelines with LangGraph orchestration and approval gates
-- [x] CEO auto-generates execution plans on pipeline creation
-- [x] Auto-pipeline suggestion — the CEO picks the team, Atlas creates missing agents
+- [x] Auto-plan with Forge — the best available agent drafts the plan and picks
+      the team, Atlas creates missing specialists (no CEO agent required)
+- [x] Existing project auto-ingestion — Forge scans your codebase before the
+      first agent runs, so agents start out knowing your files
+- [x] Pipeline chat memory — ask follow-up questions after a run and agents
+      remember everything that happened in the pipeline
+- [x] Image attachments — paste a screenshot into agent or pipeline chat and
+      ask about it (stored locally, sent as native image content)
+- [x] Full agent editing — name, role, model, color, and prompt from the agent
+      card or detail page
+- [x] Claude-style code blocks in chat, with language label and copy button
 - [x] Pipeline archive and delete
 - [x] Real-time WebSocket streaming of tokens, tool calls, and gates
 - [x] Agent memory — pgvector similarity recall of past work (VoyageAI embeddings)
@@ -123,9 +132,9 @@ API health check: <http://localhost:8000/health> · API docs: <http://localhost:
                                      └───────────────────────────────────────┘
 ```
 
-1. **Create a pipeline** — describe the project; the CEO agent drafts the
-   execution plan, or picks the whole team for you with auto-suggest (Atlas
-   creates any missing agents first).
+1. **Create a pipeline** — describe the project; Forge drafts the execution
+   plan with your best planning agent, or picks the whole team for you with
+   auto-plan (Atlas creates any missing agents first).
 2. **Approve it** — nothing runs until you say so.
 3. **Agents execute in sequence** — each with memory recall, sandboxed file and
    command tools, and output streamed live into the pipeline chat.
@@ -136,6 +145,16 @@ API health check: <http://localhost:8000/health> · API docs: <http://localhost:
 
 Prefer something smaller? Create a **task**, assign an agent, and hit **Run →**
 for a single-agent execution — same tools, same audit trail, no pipeline.
+
+## Working with existing projects
+
+Create a pipeline, select **Existing Folder**, point it at your project.
+Forge automatically scans your codebase before agents start working — file
+structure plus the contents of key files (README, package.json, and more) land
+in the first agent's context, and a "📁 Forge scanned your project" note
+appears in the pipeline chat. Describe the feature you want — agents read
+your code and implement it, instead of rediscovering the project one file
+read at a time.
 
 ## Tech Stack
 
