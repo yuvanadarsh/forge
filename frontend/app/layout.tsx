@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import ErrorBanner from "@/components/ErrorBanner";
+import GlobalDropOverlay from "@/components/GlobalDropOverlay";
 import Sidebar from "@/components/Sidebar";
 import { ForgeProvider } from "@/lib/store";
 
@@ -40,6 +41,7 @@ export default function RootLayout({
             <ErrorBanner />
             {children}
           </main>
+          <GlobalDropOverlay />
         </ForgeProvider>
       </body>
     </html>
