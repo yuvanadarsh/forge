@@ -44,7 +44,7 @@ CREATE TABLE settings (
     allowed_commands   TEXT[] NOT NULL DEFAULT '{}',
     denied_commands    TEXT[] NOT NULL DEFAULT '{}',
     default_model      TEXT NOT NULL DEFAULT 'claude-sonnet-4-5',
-    embedding_model    TEXT NOT NULL DEFAULT 'voyage-3',
+    embedding_model    TEXT NOT NULL DEFAULT 'all-MiniLM-L6-v2',  -- local sentence-transformers
     workspace_root     TEXT NOT NULL DEFAULT '~/forge-workspace',
     global_rules       TEXT NOT NULL DEFAULT '',   -- injected into every agent system prompt
     -- Cost protection: the executor stops agents once any ceiling is crossed
@@ -170,7 +170,8 @@ CREATE TABLE file_access_log (
     pipeline_run_id UUID REFERENCES pipeline_runs(id) ON DELETE CASCADE,
     agent_id        UUID REFERENCES agents(id) ON DELETE SET NULL,
     path            TEXT NOT NULL,
-    operation       TEXT NOT NULL CHECK (operation IN ('read', 'write', 'search', 'agent_created')),
+    operation       TEXT NOT NULL CHECK (operation IN ('read', 'write', 'search', 'agent_created',
+                                                       'append', 'read_section', 'replace')),
     bytes           INTEGER,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -190,9 +191,19 @@ CREATE TABLE command_log (
 -- ============================================================ agent_memory
 CREATE TABLE agent_memory (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    agent_id               UUID NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+    -- NULL agent_id = workspace-level codebase chunk (no owning agent)
+    agent_id               UUID REFERENCES agents(id) ON DELETE CASCADE,
     content                TEXT NOT NULL,
-    embedding              VECTOR(1024),   -- voyage-3
+    embedding              VECTOR(384),    -- all-MiniLM-L6-v2 (local sentence-transformers)
+    -- 'agent' rows are auto-recalled before LLM calls; 'codebase_chunk' rows
+    -- are reachable ONLY through the search_codebase tool (token-cost control).
+    memory_type            TEXT NOT NULL DEFAULT 'agent',
+    -- Codebase chunks are keyed by workspace_path (not pipeline) so an index
+    -- built by one pipeline serves later pipelines on the same folder;
+    -- source_file + file_hash let re-indexing skip unchanged files.
+    workspace_path         TEXT,
+    source_file            TEXT,
+    file_hash              TEXT,
     source_pipeline_run_id UUID REFERENCES pipeline_runs(id) ON DELETE SET NULL,
     source_task_id         UUID REFERENCES tasks(id) ON DELETE SET NULL,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -219,6 +230,7 @@ CREATE INDEX idx_token_usage_provider_model    ON token_usage (provider, model, 
 -- (conversation_id, created_at) serves both membership lookups and ordered pagination
 CREATE INDEX idx_messages_conversation         ON messages (conversation_id, created_at);
 CREATE INDEX idx_agent_memory_agent            ON agent_memory (agent_id);
+CREATE INDEX idx_agent_memory_workspace        ON agent_memory (workspace_path, memory_type);
 CREATE INDEX idx_notifications_read_created    ON notifications (read, created_at);
 CREATE INDEX idx_file_access_log_run           ON file_access_log (pipeline_run_id);
 CREATE INDEX idx_command_log_run               ON command_log (pipeline_run_id);

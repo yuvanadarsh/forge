@@ -7,11 +7,13 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER}:${DB_PASSWORD}@host.docker.internal:5432/${DB_NAME}
       - SECRET_KEY=${SECRET_KEY}
-      - VOYAGE_API_KEY=${VOYAGE_API_KEY}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
       - ~/forge-workspace:/root/forge-workspace
+      # Embedding model cache (~90MB, downloaded on first use) — a named
+      # volume so container recreation doesn't re-download it.
+      - huggingface_cache:/root/.cache/huggingface
     restart: unless-stopped
 
   frontend:
@@ -22,3 +24,6 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:${BACKEND_PORT:-8000}
       - NEXT_PUBLIC_WS_URL=ws://localhost:${BACKEND_PORT:-8000}
     restart: unless-stopped
+
+volumes:
+  huggingface_cache:

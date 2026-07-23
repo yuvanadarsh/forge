@@ -44,8 +44,12 @@ To update later: `cd ~/.forge && docker compose pull && docker compose up -d`
 - [x] Multi-agent pipelines with LangGraph orchestration and approval gates
 - [x] Auto-plan with Forge — the best available agent drafts the plan and picks
       the team, Atlas creates missing specialists (no CEO agent required)
-- [x] Existing project auto-ingestion — Forge scans your codebase before the
-      first agent runs, so agents start out knowing your files
+- [x] Workspace indexing for existing projects — Forge chunks and embeds your
+      codebase into a local vector index before agents start; agents find code
+      with semantic search (`search_codebase`) instead of reading whole files
+- [x] Large-file tools — `append_file`, `read_file_section`, and
+      `replace_in_file` let agents write, read, and surgically edit files far
+      bigger than a single model call could handle
 - [x] Pipeline chat memory — ask follow-up questions after a run and agents
       remember everything that happened in the pipeline
 - [x] Image attachments — paste a screenshot into agent or pipeline chat and
@@ -55,7 +59,8 @@ To update later: `cd ~/.forge && docker compose pull && docker compose up -d`
 - [x] Claude-style code blocks in chat, with language label and copy button
 - [x] Pipeline archive and delete
 - [x] Real-time WebSocket streaming of tokens, tool calls, and gates
-- [x] Agent memory — pgvector similarity recall of past work (VoyageAI embeddings)
+- [x] Agent memory — pgvector similarity recall of past work (local
+      sentence-transformers embeddings, no API key or internet required)
 - [x] Command security model — allow/deny lists, strict mode, full audit logs
 - [x] Cost protection — per-run, per-agent, and daily spending ceilings
 - [x] Encrypted API key vault with one-click provider testing
@@ -121,11 +126,13 @@ API health check: <http://localhost:8000/health> · API docs: <http://localhost:
                                      │   agent_executor ──▶ Anthropic API    │
                                      │     │  ├─ cost ceilings (every call)  │
                                      │     │  ├─ tool_registry (read/write/  │
-                                     │     │  │   run_command/search/        │
-                                     │     │  │   create_agent — confined    │
+                                     │     │  │   append/section/replace/    │
+                                     │     │  │   run_command/create_agent/  │
+                                     │     │  │   semantic search — confined │
                                      │     │  │   to the pipeline workspace) │
                                      │     │  └─ streaming_manager ──▶ WS    │
-                                     │     └─ memory_service ──▶ VoyageAI    │
+                                     │     └─ memory_service ──▶ local       │
+                                     │        embeddings (MiniLM, 384-dim)   │
                                      └──────────────────┬────────────────────┘
                                                         │ asyncpg
                                                         ▼
@@ -140,7 +147,9 @@ API health check: <http://localhost:8000/health> · API docs: <http://localhost:
    auto-plan (Atlas creates any missing agents first).
 2. **Approve it** — nothing runs until you say so.
 3. **Agents execute in sequence** — each with memory recall, sandboxed file and
-   command tools, and output streamed live into the pipeline chat.
+   command tools, semantic codebase search, and output streamed live into the
+   pipeline chat. For existing projects, Forge automatically indexes your
+   codebase for semantic search before agents start working.
 4. **Gates pause execution** — phase boundaries and reviewable commands wait
    for your approval; cost ceilings stop runaways automatically.
 5. **Everything is audited** — every file access, command, token, and dollar
@@ -169,8 +178,9 @@ Override per-pipeline when creating a new pipeline.
 ## Working with Forge
 
 **Each pipeline is a job, not a project.** Point multiple pipelines at the
-same workspace folder to build features incrementally. Agents automatically
-read existing code before starting.
+same workspace folder to build features incrementally. The workspace's code
+index persists across pipelines — later runs only re-embed the files that
+changed, and agents search existing code semantically instead of re-reading it.
 
 ```
 You describe a task
@@ -197,12 +207,13 @@ shortcut in their **⋯** menu (**New Pipeline →**).
 ## Working with existing projects
 
 Create a pipeline, select **Existing Folder**, point it at your project.
-Forge automatically scans your codebase before agents start working — file
-structure plus the contents of key files (README, package.json, and more) land
-in the first agent's context, and a "📁 Forge scanned your project" note
-appears in the pipeline chat. Describe the feature you want — agents read
-your code and implement it, instead of rediscovering the project one file
-read at a time.
+Forge automatically indexes your codebase for semantic search before agents
+start working — files are chunked and embedded locally (you'll see live
+"📚 indexing" progress and a completion note in the pipeline chat). Agents
+then find the code they need with the `search_codebase` tool instead of
+rediscovering the project one file read at a time. The index is keyed to the
+workspace folder: every later pipeline pointed at the same folder reuses it,
+re-embedding only the files that changed.
 
 ## Tech Stack
 
@@ -211,7 +222,7 @@ read at a time.
 | Frontend         | Next.js 16 (App Router), TypeScript (strict), Tailwind CSS, Geist                                                              |
 | Backend          | FastAPI (Python 3.11), async SQLAlchemy 2.0, asyncpg                                                                           |
 | Orchestration    | LangGraph (state graph, checkpointed interrupts)                                                                               |
-| LLM / Embeddings | Anthropic SDK · VoyageAI (voyage-3, 1024-dim)                                                                                  |
+| LLM / Embeddings | Anthropic SDK · sentence-transformers all-MiniLM-L6-v2 (384-dim, runs locally — no API key)                                   |
 | Database         | PostgreSQL on host with pgvector + pgcrypto                                                                                    |
 | Security         | AES-256-GCM key vault, workspace containment, command allow/deny lists                                                         |
 | Ops              | Docker Compose (backend + frontend; DB stays on host)                                                                          |
@@ -247,6 +258,10 @@ Future ideas, in no particular order:
 - Team collaboration (multi-user)
 - Cloud deployment option
 - Re-embedding of agent memory on model change
+- FORGE.md — a persistent per-project context file agents maintain, similar
+  to CLAUDE.md
+- Semantic code graph — structural (import/call-graph) search to reduce
+  tokens on large codebases, beyond today's chunk-based RAG
 
 ## Contributing
 

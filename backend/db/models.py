@@ -75,7 +75,9 @@ class Settings(Base):
     allowed_commands: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
     denied_commands: Mapped[list[str]] = mapped_column(ARRAY(Text), server_default=text("'{}'"))
     default_model: Mapped[str] = mapped_column(Text, server_default=text("'claude-sonnet-4-5'"))
-    embedding_model: Mapped[str] = mapped_column(Text, server_default=text("'voyage-3'"))
+    embedding_model: Mapped[str] = mapped_column(
+        Text, server_default=text("'all-MiniLM-L6-v2'")
+    )
     workspace_root: Mapped[str] = mapped_column(Text, server_default=text("'~/forge-workspace'"))
     global_rules: Mapped[str] = mapped_column(Text, server_default=text("''"))
     max_run_cost: Mapped[Decimal] = mapped_column(Numeric(8, 2), server_default=text("5.00"))
@@ -278,11 +280,21 @@ class AgentMemory(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
-    agent_id: Mapped[uuid.UUID] = mapped_column(
+    # NULL = workspace-level codebase chunk (no owning agent) — migration 011
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agents.id", ondelete="CASCADE")
     )
     content: Mapped[str] = mapped_column(Text)
-    embedding: Mapped[list[float] | None] = mapped_column(Vector(1024))
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(384))
+    # 'agent' rows are auto-recalled before LLM calls; 'codebase_chunk' rows
+    # are reachable only through the search_codebase tool.
+    memory_type: Mapped[str] = mapped_column(Text, server_default=text("'agent'"))
+    # Codebase chunks: keyed by workspace_path so the index persists across
+    # pipelines on the same folder; source_file + file_hash drive the
+    # skip-unchanged-files check on re-index.
+    workspace_path: Mapped[str | None] = mapped_column(Text)
+    source_file: Mapped[str | None] = mapped_column(Text)
+    file_hash: Mapped[str | None] = mapped_column(Text)
     source_pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("pipeline_runs.id", ondelete="SET NULL")
     )

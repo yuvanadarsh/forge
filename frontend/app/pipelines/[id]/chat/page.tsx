@@ -253,17 +253,20 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
             break;
           case "status": {
             const status = event.payload.status;
-            if (status.startsWith("scanned:")) {
-              // Auto-ingestion notice — a chat note, not a run status.
-              setLiveItems((prev) => [
-                ...prev,
-                {
-                  kind: "note",
-                  id: nextLiveId(),
-                  text: `📁 Forge scanned your project — ${status.slice("scanned:".length)} files indexed`,
-                  tone: "info",
-                },
-              ]);
+            if (status.startsWith("indexing:") || status.startsWith("indexed:")) {
+              // Workspace-indexing progress — a chat note, not a run status.
+              // Progress events update the previous indexing note in place;
+              // the final indexed:N event settles it to the completion text.
+              const text = status.startsWith("indexing:")
+                ? `📚 Forge is indexing your workspace for semantic search — ${status.slice("indexing:".length)} files`
+                : `📚 Forge indexed ${status.slice("indexed:".length)} code chunks from your workspace for semantic search`;
+              setLiveItems((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.kind === "note" && last.text.startsWith("📚 Forge is indexing")) {
+                  return [...prev.slice(0, -1), { ...last, text }];
+                }
+                return [...prev, { kind: "note", id: nextLiveId(), text, tone: "info" }];
+              });
               break;
             }
             // Per-agent updates arrive as "running:<AgentName>" — normalize so

@@ -37,8 +37,11 @@ from services.streaming import StreamingManager, streaming_manager
 from services.tool_registry import (
     NeedsApprovalError,
     ToolError,
+    append_file,
     create_agent,
     read_file,
+    read_file_section,
+    replace_in_file,
     run_command,
     search_codebase,
     write_file,
@@ -68,6 +71,38 @@ PRICING: dict[str, tuple[float, float]] = {
 }
 DEFAULT_PRICE = (3.0, 15.0)  # unknown models: assume Sonnet-tier
 
+# Injected into every agent system prompt (pipeline and task runs alike) —
+# the operating manual for the tool set: chunked writing for large files,
+# section reads + semantic search instead of whole-file reads, and
+# replace_in_file for targeted fixes.
+EXECUTION_RULE = """
+EXECUTION RULES — follow these exactly:
+
+FILE WRITING:
+- For files under 400 lines: use write_file in one call
+- For files over 400 lines: use write_file for lines 1-400, then
+  append_file for each subsequent 400-line section
+- Never attempt to write more than 400 lines in a single tool call
+- Always verify with run_command (wc -l filename) after writing
+
+FILE READING:
+- For files under 200 lines: use read_file
+- For large files: use read_file_section(path, start_line, end_line)
+  to read only what you need
+- Use search_codebase("what you're looking for") to find relevant code
+  instead of reading entire files
+
+FIXING EXISTING CODE:
+- Use replace_in_file(path, old_code, new_code) for targeted fixes
+- Only use write_file if you're creating a new file or doing a
+  complete rewrite that changes more than 50% of the file
+
+GENERAL:
+- Your first or second action must produce output (write a file or
+  make a meaningful change). Do not explore without producing output.
+- After every write: verify the file exists and has the right size
+"""
+
 TOOLS = [
     {
         "name": "read_file",
@@ -91,6 +126,57 @@ TOOLS = [
         },
     },
     {
+        "name": "append_file",
+        "description": (
+            "Append content to the end of a file in the workspace (creating "
+            "it if needed). For files over 400 lines: write_file the first "
+            "section, then append_file each subsequent section."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "content": {"type": "string", "description": "Content to append to the end of the file"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "read_file_section",
+        "description": (
+            "Read only lines start_line through end_line (1-indexed, "
+            "inclusive) of a file. Use instead of read_file for large files "
+            "— reads to end-of-file if end_line is past the last line."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "start_line": {"type": "integer", "description": "First line to read (1-indexed)"},
+                "end_line": {"type": "integer", "description": "Last line to read (inclusive)"},
+            },
+            "required": ["path", "start_line", "end_line"],
+        },
+    },
+    {
+        "name": "replace_in_file",
+        "description": (
+            "Replace the FIRST occurrence of old_content with new_content in "
+            "a file — targeted fixes without rewriting the whole file. Fails "
+            "if old_content is not found exactly, so pass the text as it "
+            "currently appears in the file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "old_content": {"type": "string", "description": "Exact existing text to replace (first occurrence)"},
+                "new_content": {"type": "string", "description": "Replacement text"},
+            },
+            "required": ["path", "old_content", "new_content"],
+        },
+    },
+    {
         "name": "run_command",
         "description": "Run a shell command in the workspace. Commands may require human approval depending on workspace security settings.",
         "input_schema": {
@@ -101,10 +187,21 @@ TOOLS = [
     },
     {
         "name": "search_codebase",
-        "description": "Case-insensitive text search across all workspace files. Returns file, line number, and matching line.",
+        "description": (
+            "Semantic search over the workspace's indexed code. Describe what "
+            "you're looking for in natural language and get the most relevant "
+            "code chunks (with file and line ranges) — use this to find code "
+            "instead of reading entire files. The index is a snapshot from "
+            "run start: files written during this run are not in it."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "Text to search for"}},
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What you're looking for, e.g. 'where database connections are configured'",
+                }
+            },
             "required": ["query"],
         },
     },
@@ -364,12 +461,7 @@ def _build_system_prompt(
     if memories:
         memory_lines = "\n".join(f"- {m.content[:500]}" for m in memories)
         parts.append(f"## Relevant context from your past work\n{memory_lines}")
-    parts.append(
-        "EXECUTION RULE: For any task that requires creating files, "
-        "call write_file as your FIRST or SECOND action. "
-        "You may run ONE exploration command if needed, but then you MUST "
-        "call write_file immediately after. Never explore without producing output."
-    )
+    parts.append(EXECUTION_RULE.strip())
     return "\n\n".join(parts)
 
 
@@ -525,12 +617,38 @@ async def _execute_tool(
                 args["path"], args["content"], workspace_path,
                 db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
             )
+        if name == "append_file":
+            output.files_touched.append(args["path"])
+            return await append_file(
+                args["path"], args["content"], workspace_path,
+                db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
+            )
+        if name == "read_file_section":
+            output.files_touched.append(args["path"])
+            return await read_file_section(
+                args["path"], args["start_line"], args["end_line"], workspace_path,
+                db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
+            )
+        if name == "replace_in_file":
+            output.files_touched.append(args["path"])
+            return await replace_in_file(
+                args["path"], args["old_content"], args["new_content"], workspace_path,
+                db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
+            )
         if name == "search_codebase":
             matches = await search_codebase(
                 args["query"], workspace_path,
                 db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
             )
-            return json.dumps(matches) if matches else "No matches found."
+            return (
+                json.dumps(matches)
+                if matches
+                else (
+                    "No matches in the codebase index. The index is built at "
+                    "run start — files written during this run are not in it; "
+                    "use read_file for those."
+                )
+            )
         if name == "run_command":
             output.commands_run.append(args["command"])
             approved = False
@@ -1003,7 +1121,10 @@ async def execute_agent(
                 if block.type != "tool_use":
                     continue
                 tool_name, tool_input = block.name, dict(block.input)
-                productive_tools = {"write_file", "create_file"}
+                # append_file / replace_in_file produce output the same way
+                # write_file does — without them here, an agent doing a
+                # legitimate targeted fix would still get nudged to write_file.
+                productive_tools = {"write_file", "create_file", "append_file", "replace_in_file"}
                 if tool_name in productive_tools:
                     productive_tool_used = True
                 elif tool_name == "run_command":
@@ -1033,6 +1154,28 @@ async def execute_agent(
                     is_error = False
                 except ToolError as exc:
                     result_str, is_error = f"Error: {exc}", True
+                except KeyError as exc:
+                    # Tool input keys come from the model, not from us: a
+                    # stream cut off by max_tokens yields a tool_use block
+                    # whose partial-JSON input silently lost its trailing
+                    # keys (e.g. write_file arriving with 'path' but no
+                    # 'content'). That must fail THIS call with an error
+                    # tool_result — preserving the tool_use/tool_result
+                    # pairing the API requires — never escape and kill the
+                    # whole pipeline run.
+                    hint = (
+                        " Your response hit the output-token limit mid-call, so "
+                        "the arguments arrived incomplete. Produce less output "
+                        "per turn — e.g. write this file in smaller sections "
+                        "across multiple write_file calls."
+                        if response.stop_reason == "max_tokens"
+                        else " Retry the call with all required arguments."
+                    )
+                    result_str, is_error = (
+                        f"Error: your {block.name} call was missing required "
+                        f"argument {exc}.{hint}",
+                        True,
+                    )
                 logger.info("TOOL CALL END: %s result=%s", block.name, str(result_str)[:100])
                 await _persist_tool_call_end(
                     tool_msg_id, block.name, dict(block.input), result_str

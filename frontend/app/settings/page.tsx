@@ -81,7 +81,6 @@ export default function SettingsPage() {
   const { dispatch } = useForge();
   // null = loading
   const [keys, setKeys] = useState<ApiKeyInfo[] | null>(null);
-  const [settings, setSettings] = useState<ForgeSettings | null>(null);
   const [security, setSecurity] = useState<SecurityDraft | null>(null);
   const [savingSecurity, setSavingSecurity] = useState(false);
   const [cost, setCost] = useState<CostDraft | null>(null);
@@ -102,7 +101,6 @@ export default function SettingsPage() {
       });
     getSettings()
       .then((s) => {
-        setSettings(s);
         dispatch({ type: "SET_SETTINGS", settings: s });
         setSecurity({
           terminal_execution: s.terminal_execution,
@@ -188,7 +186,6 @@ export default function SettingsPage() {
         allowed_commands: splitLines(security.allowed_commands),
         denied_commands: splitLines(security.denied_commands),
       });
-      setSettings(updated);
       dispatch({ type: "SET_SETTINGS", settings: updated });
       setToast("Security settings saved");
     } catch (err) {
@@ -212,7 +209,6 @@ export default function SettingsPage() {
     setSavingCost(true);
     try {
       const updated = await updateSettings(parsed);
-      setSettings(updated);
       dispatch({ type: "SET_SETTINGS", settings: updated });
       setCost({
         max_run_cost: String(updated.max_run_cost),
@@ -492,7 +488,7 @@ export default function SettingsPage() {
       {/* Section 4: Embeddings */}
       <div className={card} style={cardSt}>
         <SectionHeader title="Embeddings" />
-        <EmbeddingsSection embeddingModel={settings?.embedding_model ?? null} showToast={setToast} />
+        <EmbeddingsSection showToast={setToast} />
       </div>
 
       {/* Section 5: Export Data */}
