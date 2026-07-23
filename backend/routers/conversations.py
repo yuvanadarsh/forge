@@ -295,25 +295,28 @@ async def list_messages(
         try:
             items.append(_message_out(m, images_by_message.get(m.id, [])))
         except Exception:
-            logger.exception("Failed to serialize message %s — retrying with no image data", m.id)
-            items.append(
-                MessageOut(
-                    id=m.id,
-                    conversation_id=m.conversation_id,
-                    agent_id=m.agent_id,
-                    role=m.role,
-                    content=m.content,
-                    sender_agent_id=m.sender_agent_id,
-                    gate_status=m.gate_status,
-                    image_data=None,
-                    image_media_type=None,
-                    images=[],
-                    input_tokens=m.input_tokens,
-                    output_tokens=m.output_tokens,
-                    cost_usd=m.cost_usd,
-                    created_at=m.created_at,
+            logger.exception("Failed to serialize message %s — using placeholder", m.id)
+            try:
+                items.append(
+                    MessageOut(
+                        id=m.id,
+                        conversation_id=conversation_id,
+                        agent_id=m.agent_id,
+                        role="system",
+                        content="[Message unavailable — format updated]",
+                        sender_agent_id=None,
+                        gate_status=None,
+                        image_data=None,
+                        image_media_type=None,
+                        images=[],
+                        input_tokens=None,
+                        output_tokens=None,
+                        cost_usd=None,
+                        created_at=m.created_at,
+                    )
                 )
-            )
+            except Exception:
+                logger.exception("Placeholder serialization also failed for message %s — skipping", m.id)
 
     return MessagePage(
         items=items,

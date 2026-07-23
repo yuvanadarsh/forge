@@ -3,7 +3,6 @@
 import { useRef, useState, useEffect } from "react";
 import {
   AttachImageButton,
-  imageFilesFromDrop,
   ImagePreviewRow,
   fileToChatImage,
   MAX_IMAGES_PER_MESSAGE,
@@ -41,7 +40,6 @@ export default function PipelineChatInput({
   const ref = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
-  const [dragActive, setDragActive] = useState(false);
   const [focused, setFocused] = useState(false);
 
   // Detect @mention as user types
@@ -125,26 +123,19 @@ export default function PipelineChatInput({
     }
   }
 
+  // Files dropped anywhere on the page (see GlobalDropOverlay) land here.
+  useEffect(() => {
+    if (!onImagesChange || disabled) return;
+    function onGlobalDrop(e: Event) {
+      const files = (e as CustomEvent<{ files: File[] }>).detail?.files ?? [];
+      void addFiles(files);
+    }
+    window.addEventListener("forge:image-dropped", onGlobalDrop);
+    return () => window.removeEventListener("forge:image-dropped", onGlobalDrop);
+  });
+
   return (
-    <div
-      className="px-6 py-4 border-t shrink-0 relative"
-      style={{
-        borderColor: dragActive ? "#f59e0b" : "#1f1f1f",
-        borderStyle: dragActive ? "dashed" : "solid",
-      }}
-      onDragOver={(e) => {
-        if (!onImagesChange || disabled) return;
-        e.preventDefault();
-        setDragActive(true);
-      }}
-      onDragLeave={() => setDragActive(false)}
-      onDrop={(e) => {
-        if (!onImagesChange || disabled) return;
-        e.preventDefault();
-        setDragActive(false);
-        void addFiles(imageFilesFromDrop(e));
-      }}
-    >
+    <div className="px-6 py-4 border-t shrink-0 relative" style={{ borderColor: "#1f1f1f" }}>
       {/* @mention picker */}
       {filtered.length > 0 && (
         <div

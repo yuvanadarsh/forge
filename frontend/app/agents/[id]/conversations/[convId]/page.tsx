@@ -11,7 +11,6 @@ import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
 import {
   AttachImageButton,
   fileToChatImage,
-  imageFilesFromDrop,
   ImageAttachmentGroup,
   ImagePreviewRow,
   MAX_IMAGES_PER_MESSAGE,
@@ -63,7 +62,6 @@ export default function ConversationPage({
   const [toast, setToast] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [titleDraft, setTitleDraft] = useState("");
-  const [dragActive, setDragActive] = useState(false);
   const [inputFocused, setInputFocused] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -117,6 +115,21 @@ export default function ConversationPage({
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pendingText, thinking]);
+
+  // Files dropped anywhere on the page (see GlobalDropOverlay) land here.
+  useEffect(() => {
+    if (pendingText !== null) return;
+    function onGlobalDrop(e: Event) {
+      const files = (e as CustomEvent<{ files: File[] }>).detail?.files ?? [];
+      const accepted = files.slice(0, Math.max(0, MAX_IMAGES_PER_MESSAGE - images.length));
+      if (accepted.length === 0) return;
+      Promise.all(accepted.map(fileToChatImage))
+        .then((added) => setImages((prev) => [...prev, ...added]))
+        .catch((err) => setToast(err instanceof Error ? err.message : "Could not attach image"));
+    }
+    window.addEventListener("forge:image-dropped", onGlobalDrop);
+    return () => window.removeEventListener("forge:image-dropped", onGlobalDrop);
+  }, [pendingText, images.length]);
 
   const loadOlder = useCallback(async () => {
     if (loadingOlder || oldestLoadedPage <= 1) return;
@@ -480,29 +493,7 @@ export default function ConversationPage({
         </div>
 
         {/* Input */}
-        <div
-          className="px-6 py-4 border-t shrink-0"
-          style={{
-            borderColor: dragActive ? "#f59e0b" : "#1f1f1f",
-            borderStyle: dragActive ? "dashed" : "solid",
-          }}
-          onDragOver={(e) => {
-            if (pendingText !== null) return;
-            e.preventDefault();
-            setDragActive(true);
-          }}
-          onDragLeave={() => setDragActive(false)}
-          onDrop={(e) => {
-            if (pendingText !== null) return;
-            e.preventDefault();
-            setDragActive(false);
-            const files = imageFilesFromDrop(e).slice(0, Math.max(0, MAX_IMAGES_PER_MESSAGE - images.length));
-            if (files.length === 0) return;
-            Promise.all(files.map(fileToChatImage))
-              .then((added) => setImages((prev) => [...prev, ...added]))
-              .catch((err) => setToast(err instanceof Error ? err.message : "Could not attach image"));
-          }}
-        >
+        <div className="px-6 py-4 border-t shrink-0" style={{ borderColor: "#1f1f1f" }}>
           <ImagePreviewRow images={images} onRemove={(index) => setImages((prev) => prev.filter((_, i) => i !== index))} />
           <div className="flex gap-3 items-end">
             <AttachImageButton
