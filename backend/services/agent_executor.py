@@ -1033,6 +1033,28 @@ async def execute_agent(
                     is_error = False
                 except ToolError as exc:
                     result_str, is_error = f"Error: {exc}", True
+                except KeyError as exc:
+                    # Tool input keys come from the model, not from us: a
+                    # stream cut off by max_tokens yields a tool_use block
+                    # whose partial-JSON input silently lost its trailing
+                    # keys (e.g. write_file arriving with 'path' but no
+                    # 'content'). That must fail THIS call with an error
+                    # tool_result — preserving the tool_use/tool_result
+                    # pairing the API requires — never escape and kill the
+                    # whole pipeline run.
+                    hint = (
+                        " Your response hit the output-token limit mid-call, so "
+                        "the arguments arrived incomplete. Produce less output "
+                        "per turn — e.g. write this file in smaller sections "
+                        "across multiple write_file calls."
+                        if response.stop_reason == "max_tokens"
+                        else " Retry the call with all required arguments."
+                    )
+                    result_str, is_error = (
+                        f"Error: your {block.name} call was missing required "
+                        f"argument {exc}.{hint}",
+                        True,
+                    )
                 logger.info("TOOL CALL END: %s result=%s", block.name, str(result_str)[:100])
                 await _persist_tool_call_end(
                     tool_msg_id, block.name, dict(block.input), result_str
