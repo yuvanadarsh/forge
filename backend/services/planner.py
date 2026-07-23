@@ -38,6 +38,8 @@ SUGGEST_MAX_OUTPUT_TOKENS = 2048
 MAX_MISSING_AGENTS = 5  # cap how many new agents one suggestion may create
 
 ATLAS_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+ATLAS_TEAM_MAX_AGENTS = 3          # cap when Atlas designs a team from scratch
+ATLAS_TEAM_MAX_TOOL_ITERATIONS = 5  # bounded tool loop, same shape as chat_reply's
 
 DEFAULT_PLAN_TEMPLATE = """# Execution Plan: {title}
 
@@ -325,6 +327,82 @@ async def _atlas_create_missing(client, missing: dict) -> uuid.UUID | None:
     return uuid.UUID(result["id"])
 
 
+async def _atlas_build_team(client, pipeline: Pipeline) -> tuple[list[uuid.UUID], str]:
+    """No agents exist at all: have Atlas design and create a small team
+    directly via a bounded create_agent tool loop (same shape as chat_reply's
+    eternal-agent loop in agent_executor.py)."""
+    session_factory = get_session_factory()
+    async with session_factory() as db:
+        atlas = await db.get(Agent, ATLAS_ID)
+    if atlas is None:
+        return [], "Atlas is not available — could not auto-build a team."
+
+    request_kwargs = {
+        "model": atlas.model,
+        "max_tokens": SUGGEST_MAX_OUTPUT_TOKENS,
+        "system": atlas.system_prompt.strip() or "You are Atlas, the creator of agents.",
+        "tools": [CREATE_AGENT_TOOL],
+    }
+    messages: list[dict] = [
+        {
+            "role": "user",
+            "content": (
+                f"Design a complete agent team for this task: {pipeline.title} — "
+                f"{pipeline.description}.\nCreate each agent you need using the "
+                "create_agent tool. Create them in execution order. Create "
+                f"{ATLAS_TEAM_MAX_AGENTS} agents maximum."
+            ),
+        }
+    ]
+    created: list[uuid.UUID] = []
+    try:
+        response = await client.messages.create(messages=messages, **request_kwargs)
+        await _record_usage(atlas, response)
+        for _ in range(ATLAS_TEAM_MAX_TOOL_ITERATIONS):
+            if response.stop_reason != "tool_use":
+                break
+            messages.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for block in response.content:
+                if block.type != "tool_use" or block.name != "create_agent":
+                    continue
+                if len(created) >= ATLAS_TEAM_MAX_AGENTS:
+                    tool_results.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": "Team is complete — no more agents needed.",
+                            "is_error": True,
+                        }
+                    )
+                    continue
+                async with session_factory() as db:
+                    result_str = await _dispatch_create_agent(atlas, dict(block.input), db)
+                created.append(uuid.UUID(json.loads(result_str)["id"]))
+                tool_results.append(
+                    {"type": "tool_result", "tool_use_id": block.id, "content": result_str}
+                )
+            messages.append({"role": "user", "content": tool_results})
+            if len(created) >= ATLAS_TEAM_MAX_AGENTS:
+                break
+            response = await client.messages.create(messages=messages, **request_kwargs)
+            await _record_usage(atlas, response)
+    except Exception as exc:
+        logger.warning("Atlas could not build a team for %s (%s)", pipeline.id, exc)
+
+    if created:
+        reasoning = (
+            f"No agents existed yet, so Atlas designed and created a team of "
+            f"{len(created)} agent(s) for this task."
+        )
+    else:
+        reasoning = (
+            "No agents exist yet, and Atlas could not build a team automatically. "
+            "Chat with Atlas to create agents, then create this pipeline again."
+        )
+    return created, reasoning
+
+
 async def suggest_and_plan(pipeline_id: uuid.UUID) -> None:
     """Background task for auto_suggest pipelines: the best available
     planner picks the sequence, Atlas fills gaps, then plan generation runs."""
@@ -346,14 +424,24 @@ async def suggest_and_plan(pipeline_id: uuid.UUID) -> None:
         except Exception as exc:
             logger.warning("Auto-suggest for %s: no LLM client (%s)", pipeline_id, exc)
 
+    logger.info("Auto-plan: found %d existing agents", len(roster))
+
     sequence: list[uuid.UUID] = []
     reasoning: str
 
     if planner is None:
-        reasoning = (
-            "No agents exist yet, so nothing could be selected. Chat with Atlas "
-            "to build your team, then create this pipeline again."
-        )
+        if client is None:
+            reasoning = (
+                "No agents exist yet, so nothing could be selected. Chat with Atlas "
+                "to build your team, then create this pipeline again."
+            )
+        else:
+            logger.info(
+                "Auto-plan: no existing agents — asking Atlas to build a team for %s",
+                pipeline_id,
+            )
+            sequence, reasoning = await _atlas_build_team(client, pipeline)
+            logger.info("Auto-plan: Atlas created %d new agents", len(sequence))
     elif client is None:
         sequence = [planner.id]
         reasoning = (
@@ -386,6 +474,7 @@ async def suggest_and_plan(pipeline_id: uuid.UUID) -> None:
                     sequence.append(agent_id)
 
             missing = data.get("missing_agents") or []
+            logger.info("Auto-plan: Atlas creating %d new agents", min(len(missing), MAX_MISSING_AGENTS))
             for entry in missing[:MAX_MISSING_AGENTS]:
                 if not isinstance(entry, dict):
                     continue
@@ -411,6 +500,17 @@ async def suggest_and_plan(pipeline_id: uuid.UUID) -> None:
             return  # deleted while we were thinking
         row.agent_sequence = sequence
         row.suggestion_reasoning = reasoning
+        seq_agents = (
+            (await db.execute(select(Agent).where(Agent.id.in_(sequence)))).scalars().all()
+            if sequence
+            else []
+        )
         await db.commit()
+
+    names_by_id = {a.id: a.name for a in seq_agents}
+    logger.info(
+        "Auto-plan: final sequence %s",
+        [names_by_id.get(agent_id, str(agent_id)) for agent_id in sequence],
+    )
 
     await generate_execution_plan(pipeline_id)
