@@ -133,6 +133,25 @@ def _matches_list(command: str, entries: list[str]) -> bool:
     return any(cmd == e or cmd.startswith(f"{e} ") for e in (x.strip() for x in entries) if e)
 
 
+# agent_decides: commands matching any of these run unattended; everything
+# else in that mode also runs unattended (see _check_command_policy) unless
+# denied/strict — only these patterns are treated as risky enough to ask.
+_RISKY_COMMAND_PATTERNS = [
+    re.compile(r"^\s*rm\b"),
+    re.compile(r"^\s*sudo\b"),
+    re.compile(r"^\s*chmod\b"),
+    re.compile(r"^\s*chown\b"),
+    re.compile(r"^\s*dd\b"),
+    re.compile(r"^\s*mkfs"),
+    re.compile(r"^\s*wget\b"),
+    re.compile(r"\bcurl\b[^\n]*(-o\b|--output\b)"),
+]
+
+
+def _is_risky_command(command: str) -> bool:
+    return any(pattern.search(command) for pattern in _RISKY_COMMAND_PATTERNS)
+
+
 def _check_command_policy(command: str, settings: dict) -> None:
     """Apply the security model; raises on block or approval requirement."""
     denied = settings.get("denied_commands") or []
@@ -147,11 +166,15 @@ def _check_command_policy(command: str, settings: dict) -> None:
         return  # allow list always runs regardless of terminal_execution
     if mode == "always_proceed":
         return
-    if mode == "request_review":
-        raise NeedsApprovalError(command, "settings require review of terminal commands")
-    # agent_decides: only allow-listed commands run unattended; anything
-    # else still goes to a human — the safe reading of "agent decides".
-    raise NeedsApprovalError(command, "command is not on the allow list")
+    if mode == "agent_decides":
+        # Safe commands run unattended; only risky ones (rm, sudo, chmod,
+        # curl -o, wget, …) go to a human — the balanced reading of
+        # "agent decides", not a synonym for request_review.
+        if _is_risky_command(command):
+            raise NeedsApprovalError(command, "command looks risky under agent_decides and requires approval")
+        return
+    # request_review (default): everything not on the allow list needs approval.
+    raise NeedsApprovalError(command, "settings require review of terminal commands")
 
 
 async def run_command(
