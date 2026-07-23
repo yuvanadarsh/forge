@@ -68,6 +68,15 @@ Real-key verification DONE (Session 12) — a live Anthropic key now sits in
 the local vault; a full pipeline run, post-completion chat replies, and
 image content blocks were all verified against the real API.
 
+SESSION 14 (2026-07-22) — FINAL CLEANUP & SHIP: full lint cleanup (tsc,
+eslint, and next build all pass clean — every remaining
+react-hooks/set-state-in-effect error fixed), collapsible execution plan
+drawer, conversation export (Markdown + print-to-PDF), continue-project
+UX (new pipeline from a completed pipeline's workspace), and final docs.
+All planned features are COMPLETE — the README feature checklist's only
+unchecked items are the two roadmap entries (additional providers,
+re-embedding). New sections below + Session 14 history entry.
+
 SESSION 13 (2026-07-22) — CHAT POLISH, MULTI-IMAGE: post-completion
 pipeline chat gets a poll-based fallback so a slow reply that outlasts the
 client still lands without a refresh, multi-image chat attachments
@@ -300,6 +309,55 @@ history entry.
 - Images flow only through chat (chat_reply); pipeline/task executions do
   not receive image content
 
+## Pipeline-per-Feature Pattern (Session 14)
+
+- Each pipeline is a JOB, not a project: point multiple pipelines at the
+  same workspace folder to build features incrementally; existing-project
+  auto-ingestion (Session 12) means later pipelines start out knowing the
+  files earlier ones wrote
+- Continue-project UX: completed pipeline chat shows "Working on something
+  new in this project?" + an amber "→ Start new pipeline in this workspace"
+  link below the input; completed pipeline cards have "New Pipeline →" in
+  their ⋯ menu — both open CreatePipelineModal with continueFrom set
+- CreatePipelineModal.continueFrom ({workspacePath, fromTitle}) preselects
+  "Existing folder", pre-fills the path, autofocuses Title, and shows
+  "Continuing from: <title> — agents will see all existing files in this
+  workspace." under the workspace field
+- Cross-page handoff on create-from-chat: forge:toast (Session 8 pattern)
+  plus NEW sessionStorage key forge:pending-plan — the pipelines page
+  seeds its 3s plan-drafting poll list from it in a lazy useState
+  initializer, so a pipeline created on the chat page still shows live
+  plan progress after the redirect to /pipelines
+
+## Conversation Export (Session 14)
+
+- Export ↓ dropdown in the pipeline chat header (outlined secondary
+  button, shown for running AND completed pipelines): Export as PDF /
+  Export as Markdown
+- lib/export.ts owns the pure builders (unit-testable, no React):
+  buildConversationMarkdown, buildPrintHtml, slugify, exportFilename;
+  exported roles are user/assistant/approval_gate/tool_call/system, tool
+  calls render as code blocks, images as "[N images attached]" markers
+- Markdown downloads via Blob + createObjectURL as
+  <pipeline-title-slug>-<YYYY-MM-DD>.md (date = latest run's completed_at,
+  else pipeline created_at)
+- PDF is browser print: window.open + document.write of a print-formatted
+  page (white bg, black text, escaped content, page-break-inside: avoid
+  per message) with window.onload = window.print() — no PDF library; a
+  blocked popup surfaces a toast instead of failing silently
+
+## Collapsible Execution Plan (Session 14)
+
+- The plan panel is a drawer: COLLAPSED BY DEFAULT to a 32px tab (📋 +
+  "Plan" label in vertical writing-mode); clicking the tab slides the
+  280px panel in via transform: translateX (200ms ease); a ‹ button in
+  the open panel's header collapses it; chat takes the freed width
+- Open/closed preference persists per pipeline in localStorage key
+  forge:plan-open:<pipelineId> ("1" = open); read in a lazy useState
+  initializer with a typeof window guard, written on every toggle
+- remarkGfm + the shared .markdown-body class (Session 13) carried over
+  unchanged — tables in plan_md render styled, not as raw pipes
+
 ## Existing Project Auto-Ingestion (Session 12)
 
 - run_pipeline scans a non-empty workspace before building the graph:
@@ -478,6 +536,10 @@ frontend/
                                         shared chatMarkdownComponents map (Session 12)
   components/chat/ImageAttachment.tsx — attach button, staged preview, message
                                         thumbnail + lightbox (Session 12)
+  components/chat/ExportMenu.tsx      — Export ↓ dropdown in the pipeline chat
+                                        header (Session 14)
+  lib/export.ts                       — conversation export builders: Markdown
+                                        download + print-to-PDF HTML (Session 14)
   components/agents/EditAgentModal.tsx — full agent editor; read-only for eternal
                                         agents (Session 12)
 ```
@@ -536,6 +598,16 @@ backend/
 - Image attachments are chat-only — pipeline/task agent executions never
   receive image content, and only the newest user message carries the real
   image block (history keeps "[image attached]" text markers)
+- Messages persisted by installs predating the newer migrations (e.g.
+  pre-007 role values or missing image columns) can fail row
+  serialization — the messages endpoint renders those rows as placeholder
+  notices instead of 500ing the page, so old conversations load with
+  gaps rather than crashing
+- install.sh requires the GHCR images to be published (a push to main
+  must have run .github/workflows/publish.yml) — on a fork or before
+  first publish, use the build-from-source path instead
+- Single user only — no authentication (also listed above; it is the
+  first limitation new deployers should know)
 
 ## Session History Decisions
 
@@ -918,6 +990,47 @@ backend/
   (shared class) rather than per-surface component overrides, so
   PipelineExecutionPlan picked up the same look by just adding the class
   — one CSS change instead of three duplicated component trees.
+
+### Session 14 (2026-07-22) — Final cleanup & ship: lint-clean, plan drawer, export, continue-project
+
+- The cleanup sweep found the codebase already free of console.log debug
+  artifacts, stale TODOs, and commented-out code — the real work was the
+  11 outstanding eslint problems (6 errors + 5 warnings) documented as
+  out-of-scope in Session 13. All fixed; eslint AND tsc now pass with
+  zero findings, so "lint not clean on main" notes in older memories are
+  obsolete once this merges
+- set-state-in-effect fixes used three patterns, each chosen to keep the
+  existing behavior byte-identical: (1) render-phase state adjustment
+  (track prev key in state, reset during render) for the loading resets
+  in TokenUsageGraph/CostAnalyticsGraph/the conversation page; (2)
+  useSyncExternalStore with a server snapshot of "dismissed" for
+  OnboardingBanner's localStorage read (SSR-safe, no mount-effect
+  setState); (3) derived-during-render state for PipelineChatInput's
+  @mention query, with Escape dismissal stored as dismissedForValue ===
+  value so typing anything revives the picker exactly like the old
+  effect did
+- settings page effect now calls listApiKeys().then(setKeys) inline
+  instead of refreshKeys() — the linter can't see through an async
+  wrapper whose first statement awaits; refreshKeys stays for the
+  post-mutation call sites
+- The dead participants prop was removed from PipelineChatMessage
+  end-to-end (interface + both call sites) rather than silently
+  un-destructured — tsc caught the second call site the lint warning
+  didn't mention
+- Execution plan drawer defaults to COLLAPSED (spec decision) — the
+  localStorage key stores the OPEN state ("1" = open) so absent-key
+  first visits collapse; per-pipeline key forge:plan-open:<id>
+- Export deliberately ships without a PDF library: browser print via a
+  new window is dependency-free and honors the user's page size/margins;
+  markdown builders live in lib/export.ts so they stay testable without
+  DOM
+- README's "How it works" user-flow diagram says "your planning agent
+  picks the team" where the session spec draft said "CEO picks agents" —
+  Session 12 removed user-facing CEO strings on purpose, and README copy
+  follows the product, not the draft
+- forge:pending-plan sessionStorage handoff introduced (see
+  Pipeline-per-Feature section) — reuse it if any other page ever
+  creates a pipeline and redirects to /pipelines
 
 ## CLAUDE.md Rules
 

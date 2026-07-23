@@ -64,6 +64,9 @@ To update later: `cd ~/.forge && docker compose pull && docker compose up -d`
 - [x] Tool call history persisted to the database (survives page reloads)
 - [x] Live agent status dots and typing indicators in pipeline chat
 - [x] One-command install with pre-built GHCR images (`install.sh`)
+- [x] Collapsible execution plan drawer — open/closed state remembered per pipeline
+- [x] Export any pipeline conversation as Markdown or PDF (browser print)
+- [x] Continue-project flow — start a new pipeline in a completed pipeline's workspace
 - [ ] Additional execution providers (OpenAI, Gemini, local models)
 - [ ] Re-embedding of agent memory on model change
 
@@ -146,6 +149,34 @@ API health check: <http://localhost:8000/health> · API docs: <http://localhost:
 Prefer something smaller? Create a **task**, assign an agent, and hit **Run →**
 for a single-agent execution — same tools, same audit trail, no pipeline.
 
+## Working with Forge
+
+**Each pipeline is a job, not a project.** Point multiple pipelines at the
+same workspace folder to build features incrementally. Agents automatically
+read existing code before starting.
+
+```
+You describe a task
+     ↓
+Forge auto-plans → your planning agent picks the team → Atlas creates missing ones
+     ↓
+You approve the plan
+     ↓
+Agents execute: read files → write code → run tests → write docs
+     ↓
+You review at approval gates
+     ↓
+Files land in ~/forge-workspace/[project]/
+     ↓
+Continue chatting with agents or start a new pipeline
+```
+
+When a pipeline completes, its chat stays open: ask follow-up questions,
+export the conversation (**Export ↓** → Markdown or PDF), or click
+**→ Start new pipeline in this workspace** below the input to queue the next
+feature against the same codebase. Completed pipeline cards have the same
+shortcut in their **⋯** menu (**New Pipeline →**).
+
 ## Working with existing projects
 
 Create a pipeline, select **Existing Folder**, point it at your project.
@@ -178,8 +209,16 @@ while `docker-compose.prod.yml` pulls the pre-built GHCR images — that's what
 <!-- Add screenshots to docs/screenshots/ and update the paths below. -->
 
 ![Dashboard](docs/screenshots/dashboard.png)
+*The dashboard — live agent grid, cost analytics, and the operations kanban.*
+
 ![Pipeline chat with approval gate](docs/screenshots/pipeline-chat.png)
+*Pipeline chat mid-run — streaming tokens, tool calls, and an approval gate waiting on you.*
+
 ![Atlas creating an agent](docs/screenshots/atlas.png)
+*Atlas designing and creating a new specialist agent from a chat request.*
+
+![Create pipeline with auto-plan](docs/screenshots/create-pipeline.png)
+*Auto-plan picks the team, drafts the execution plan, and waits for your approval.*
 
 ## Roadmap
 
