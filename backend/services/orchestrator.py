@@ -246,8 +246,17 @@ def _make_agent_node(
         # re-executes the node from the top and interrupt() returns the
         # resume value instead of pausing again.
         if gate_before and state["approval_status"] != "approved_gate":
+            logger.info(
+                "Gate: calling interrupt() before agent index %d (run %s)",
+                index, pipeline_run_id,
+            )
             interrupt({"gate": "phase_boundary", "next_agent_index": index})
+            logger.info(
+                "Gate: interrupt() returned (resumed) before agent index %d (run %s)",
+                index, pipeline_run_id,
+            )
 
+        logger.info("Gate: entering agent node index %d (run %s)", index, pipeline_run_id)
         session_factory = get_session_factory()
         async with session_factory() as db:
             pipeline = await db.get(Pipeline, pipeline_id)
@@ -375,7 +384,9 @@ async def _wait_for_run_approval(run_id: uuid.UUID) -> None:
             if run.status == "approved":
                 run.status = "running"
                 await db.commit()
+                logger.info("Gate: run %s flipped approved -> running after %ds", run_id, waited)
                 return
+    logger.error("Gate: run %s timed out waiting for approval after %ds", run_id, waited)
     raise RuntimeError("Pipeline approval gate timed out after 1 hour")
 
 
@@ -464,10 +475,16 @@ async def run_pipeline(pipeline_run_id: uuid.UUID, db: AsyncSession) -> None:
             next_agent_index = None
             if state_snapshot.tasks and state_snapshot.tasks[0].interrupts:
                 next_agent_index = state_snapshot.tasks[0].interrupts[0].value.get("next_agent_index")
+            logger.info(
+                "Gate: paused at graph state next=%s, next_agent_index=%s (run %s)",
+                state_snapshot.next, next_agent_index, run.id,
+            )
             await _pause_for_gate(pipeline, run.id, conversation.id, next_agent_index)
             await _wait_for_run_approval(run.id)
+            logger.info("Gate: approval observed, resuming graph (run %s)", run.id)
             await streaming_manager.send_status(str(run.id), "running")
             await graph.ainvoke(Command(resume="approved_gate"), config)
+            logger.info("Gate: resume ainvoke returned (run %s)", run.id)
 
         async with session_factory() as done_db:
             done_run = await done_db.get(PipelineRun, run.id)
