@@ -128,6 +128,132 @@ async def write_file(
     return f"Wrote {target} ({len(data)} bytes)"
 
 
+async def append_file(
+    path: str,
+    content: str,
+    workspace_path: str,
+    *,
+    db: AsyncSession | None = None,
+    agent_id: uuid.UUID | None = None,
+    pipeline_run_id: uuid.UUID | None = None,
+) -> str:
+    """Append to a file, creating it (parents included) if missing — the
+    chunked-writing companion to write_file for large files."""
+    target = _resolve_safe(path, workspace_path)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        data = content.encode("utf-8")
+        with target.open("ab") as handle:
+            handle.write(data)
+        total_bytes = target.stat().st_size
+    except OSError as exc:
+        raise ToolError(f"Could not append to {path}: {exc}") from exc
+    await _log_file_access(
+        db, path=str(target), operation="append", num_bytes=len(data),
+        agent_id=agent_id, pipeline_run_id=pipeline_run_id,
+    )
+    return f"Appended {len(data)} bytes to {target} — file is now {total_bytes} bytes"
+
+
+async def read_file_section(
+    path: str,
+    start_line: int,
+    end_line: int,
+    workspace_path: str,
+    *,
+    db: AsyncSession | None = None,
+    agent_id: uuid.UUID | None = None,
+    pipeline_run_id: uuid.UUID | None = None,
+) -> str:
+    """Read only lines start_line..end_line (1-indexed, inclusive).
+
+    Unlike read_file there is no whole-file size gate — reading a slice of
+    a huge file is the point — but the returned section itself stays under
+    MAX_READ_BYTES. Reads to EOF when end_line is past the last line.
+    """
+    target = _resolve_safe(path, workspace_path)
+    if not target.is_file():
+        raise ToolError(f"File not found: {path}")
+    try:
+        start_line, end_line = int(start_line), int(end_line)
+    except (TypeError, ValueError) as exc:
+        raise ToolError("start_line and end_line must be integers") from exc
+    if start_line < 1 or end_line < start_line:
+        raise ToolError("start_line must be >= 1 and end_line must be >= start_line")
+
+    section_lines: list[str] = []
+    section_bytes = 0
+    try:
+        with target.open("r", encoding="utf-8", errors="replace") as handle:
+            for line_no, line in enumerate(handle, start=1):
+                if line_no < start_line:
+                    continue
+                if line_no > end_line:
+                    break
+                stripped = line.rstrip("\n")
+                section_bytes += len(stripped.encode()) + 1
+                if section_bytes > MAX_READ_BYTES:
+                    raise ToolError(
+                        f"Section is over {MAX_READ_BYTES} bytes — request a "
+                        "smaller line range"
+                    )
+                section_lines.append(stripped)
+    except OSError as exc:
+        raise ToolError(f"Could not read {path}: {exc}") from exc
+    if not section_lines:
+        raise ToolError(f"{path} has fewer than {start_line} lines — nothing to read")
+
+    actual_end = start_line + len(section_lines) - 1
+    content = "\n".join(section_lines)
+    await _log_file_access(
+        db, path=str(target), operation="read_section", num_bytes=len(content.encode()),
+        agent_id=agent_id, pipeline_run_id=pipeline_run_id,
+    )
+    return f"Lines {start_line}-{actual_end} of {path}:\n\n{content}"
+
+
+async def replace_in_file(
+    path: str,
+    old_content: str,
+    new_content: str,
+    workspace_path: str,
+    *,
+    db: AsyncSession | None = None,
+    agent_id: uuid.UUID | None = None,
+    pipeline_run_id: uuid.UUID | None = None,
+) -> str:
+    """Replace the FIRST occurrence of old_content with new_content.
+
+    Raises when old_content is absent so a stale/imagined snippet can never
+    silently no-op — the agent must read the real file and try again.
+    """
+    target = _resolve_safe(path, workspace_path)
+    if not target.is_file():
+        raise ToolError(f"File not found: {path}")
+    if not old_content:
+        raise ToolError("old_content is empty — pass the exact text to replace")
+    try:
+        text = target.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        raise ToolError(f"Could not read {path}: {exc}") from exc
+    if old_content not in text:
+        raise ToolError(
+            f"old_content not found in {path} — no changes made. Read the "
+            "current file content (read_file or read_file_section) and pass "
+            "the text exactly as it appears."
+        )
+    try:
+        data = text.replace(old_content, new_content, 1).encode("utf-8")
+        target.write_bytes(data)
+    except OSError as exc:
+        raise ToolError(f"Could not write {path}: {exc}") from exc
+    await _log_file_access(
+        db, path=str(target), operation="replace", num_bytes=len(data),
+        agent_id=agent_id, pipeline_run_id=pipeline_run_id,
+    )
+    return f"Replaced in {path} — file is now {len(data)} bytes"
+
+
 def _matches_list(command: str, entries: list[str]) -> bool:
     """A list entry matches on exact command or word-boundary prefix,
     so denied 'rm' blocks 'rm -rf x' but not 'rmdir'."""

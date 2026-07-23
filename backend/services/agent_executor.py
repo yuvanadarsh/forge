@@ -37,8 +37,11 @@ from services.streaming import StreamingManager, streaming_manager
 from services.tool_registry import (
     NeedsApprovalError,
     ToolError,
+    append_file,
     create_agent,
     read_file,
+    read_file_section,
+    replace_in_file,
     run_command,
     search_codebase,
     write_file,
@@ -88,6 +91,57 @@ TOOLS = [
                 "content": {"type": "string", "description": "Full file contents to write"},
             },
             "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "append_file",
+        "description": (
+            "Append content to the end of a file in the workspace (creating "
+            "it if needed). For files over 400 lines: write_file the first "
+            "section, then append_file each subsequent section."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "content": {"type": "string", "description": "Content to append to the end of the file"},
+            },
+            "required": ["path", "content"],
+        },
+    },
+    {
+        "name": "read_file_section",
+        "description": (
+            "Read only lines start_line through end_line (1-indexed, "
+            "inclusive) of a file. Use instead of read_file for large files "
+            "— reads to end-of-file if end_line is past the last line."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "start_line": {"type": "integer", "description": "First line to read (1-indexed)"},
+                "end_line": {"type": "integer", "description": "Last line to read (inclusive)"},
+            },
+            "required": ["path", "start_line", "end_line"],
+        },
+    },
+    {
+        "name": "replace_in_file",
+        "description": (
+            "Replace the FIRST occurrence of old_content with new_content in "
+            "a file — targeted fixes without rewriting the whole file. Fails "
+            "if old_content is not found exactly, so pass the text as it "
+            "currently appears in the file."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string", "description": "File path relative to workspace"},
+                "old_content": {"type": "string", "description": "Exact existing text to replace (first occurrence)"},
+                "new_content": {"type": "string", "description": "Replacement text"},
+            },
+            "required": ["path", "old_content", "new_content"],
         },
     },
     {
@@ -534,6 +588,24 @@ async def _execute_tool(
             output.files_touched.append(args["path"])
             return await write_file(
                 args["path"], args["content"], workspace_path,
+                db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
+            )
+        if name == "append_file":
+            output.files_touched.append(args["path"])
+            return await append_file(
+                args["path"], args["content"], workspace_path,
+                db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
+            )
+        if name == "read_file_section":
+            output.files_touched.append(args["path"])
+            return await read_file_section(
+                args["path"], args["start_line"], args["end_line"], workspace_path,
+                db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
+            )
+        if name == "replace_in_file":
+            output.files_touched.append(args["path"])
+            return await replace_in_file(
+                args["path"], args["old_content"], args["new_content"], workspace_path,
                 db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
             )
         if name == "search_codebase":
@@ -1022,7 +1094,10 @@ async def execute_agent(
                 if block.type != "tool_use":
                     continue
                 tool_name, tool_input = block.name, dict(block.input)
-                productive_tools = {"write_file", "create_file"}
+                # append_file / replace_in_file produce output the same way
+                # write_file does — without them here, an agent doing a
+                # legitimate targeted fix would still get nudged to write_file.
+                productive_tools = {"write_file", "create_file", "append_file", "replace_in_file"}
                 if tool_name in productive_tools:
                     productive_tool_used = True
                 elif tool_name == "run_command":
