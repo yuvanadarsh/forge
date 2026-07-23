@@ -71,6 +71,38 @@ PRICING: dict[str, tuple[float, float]] = {
 }
 DEFAULT_PRICE = (3.0, 15.0)  # unknown models: assume Sonnet-tier
 
+# Injected into every agent system prompt (pipeline and task runs alike) —
+# the operating manual for the tool set: chunked writing for large files,
+# section reads + semantic search instead of whole-file reads, and
+# replace_in_file for targeted fixes.
+EXECUTION_RULE = """
+EXECUTION RULES — follow these exactly:
+
+FILE WRITING:
+- For files under 400 lines: use write_file in one call
+- For files over 400 lines: use write_file for lines 1-400, then
+  append_file for each subsequent 400-line section
+- Never attempt to write more than 400 lines in a single tool call
+- Always verify with run_command (wc -l filename) after writing
+
+FILE READING:
+- For files under 200 lines: use read_file
+- For large files: use read_file_section(path, start_line, end_line)
+  to read only what you need
+- Use search_codebase("what you're looking for") to find relevant code
+  instead of reading entire files
+
+FIXING EXISTING CODE:
+- Use replace_in_file(path, old_code, new_code) for targeted fixes
+- Only use write_file if you're creating a new file or doing a
+  complete rewrite that changes more than 50% of the file
+
+GENERAL:
+- Your first or second action must produce output (write a file or
+  make a meaningful change). Do not explore without producing output.
+- After every write: verify the file exists and has the right size
+"""
+
 TOOLS = [
     {
         "name": "read_file",
@@ -429,12 +461,7 @@ def _build_system_prompt(
     if memories:
         memory_lines = "\n".join(f"- {m.content[:500]}" for m in memories)
         parts.append(f"## Relevant context from your past work\n{memory_lines}")
-    parts.append(
-        "EXECUTION RULE: For any task that requires creating files, "
-        "call write_file as your FIRST or SECOND action. "
-        "You may run ONE exploration command if needed, but then you MUST "
-        "call write_file immediately after. Never explore without producing output."
-    )
+    parts.append(EXECUTION_RULE.strip())
     return "\n\n".join(parts)
 
 
