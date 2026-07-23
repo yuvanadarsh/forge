@@ -164,6 +164,18 @@ export interface PipelineCreatePayload {
   execution_mode?: "full_auto" | "supervised" | "strict";
 }
 
+export interface WorkspaceEntry {
+  name: string;
+  path: string;
+  type: "directory";
+}
+
+export interface WorkspaceBrowseResult {
+  current_path: string;
+  parent_path: string | null;
+  entries: WorkspaceEntry[];
+}
+
 export interface BackendTask extends Omit<Task, "assigned_to"> {
   assigned_to: string | null;
 }

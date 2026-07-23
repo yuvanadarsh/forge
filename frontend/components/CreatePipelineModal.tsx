@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPipeline } from "@/lib/api";
 import { useForge } from "@/lib/store";
+import WorkspaceBrowserModal from "@/components/WorkspaceBrowserModal";
 import type { BackendPipeline } from "@/types";
 
 function slugify(value: string): string {
@@ -72,6 +73,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
   const [folderNameEdited, setFolderNameEdited] = useState(false);
   const [executionMode, setExecutionMode] = useState<ExecutionModeChoice>("default");
   const [submitting, setSubmitting] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -88,21 +90,14 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
     setFolderName(value);
   }
 
+  // The native <input type="file" webkitdirectory> picker only ever
+  // returns a path on the browser's HOST machine — it has no way to know
+  // the backend container's mount point, so it's structurally incapable
+  // of returning a path the backend can use. WorkspaceBrowserModal lists
+  // directories from inside the container instead, so every path it
+  // returns is already correct.
   function handleBrowse() {
-    const input = document.createElement("input");
-    input.type = "file";
-    // webkitdirectory is a non-standard but widely-supported attribute for
-    // picking a folder; browsers only ever expose files' paths relative to
-    // the picked root, never an absolute filesystem path.
-    (input as HTMLInputElement & { webkitdirectory: boolean }).webkitdirectory = true;
-    input.onchange = () => {
-      const file = input.files?.[0];
-      if (!file) return;
-      const relativePath = file.webkitRelativePath || file.name;
-      const folder = relativePath.split("/")[0];
-      if (folder) setExistingPath(`/Users/username/${folder}`);
-    };
-    input.click();
+    setBrowserOpen(true);
   }
 
   const agents = state.agents;
@@ -148,6 +143,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
   }
 
   return (
+    <>
     <div
       className="modal-overlay fixed inset-0 z-40 flex items-center justify-center p-4"
       style={{ background: "rgba(0,0,0,0.7)", backdropFilter: "blur(4px)" }}
@@ -334,7 +330,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
                   <input
                     value={existingPath}
                     onChange={(e) => setExistingPath(e.target.value)}
-                    placeholder="/Users/username/my-existing-project"
+                    placeholder="/root/forge-workspace/my-existing-project"
                     className="flex-1 min-w-0 px-3 py-2.5 rounded-lg text-sm outline-none border transition-colors duration-150"
                     style={{ background: "#0d0d0d", borderColor: "#1f1f1f", color: "#f5f5f5" }}
                     onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
@@ -350,7 +346,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
                   </button>
                 </div>
                 <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "#3f3f46" }}>
-                  Select any file inside your project folder — Forge will use the containing directory.
+                  Browse lists folders from inside the backend container, so the path it picks is always one your agents can actually read.
                 </p>
               </div>
             )}
@@ -427,5 +423,15 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
         </div>
       </div>
     </div>
+    {browserOpen && (
+      <WorkspaceBrowserModal
+        onClose={() => setBrowserOpen(false)}
+        onSelect={(path) => {
+          setExistingPath(path);
+          setBrowserOpen(false);
+        }}
+      />
+    )}
+    </>
   );
 }

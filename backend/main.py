@@ -39,6 +39,7 @@ from routers import (  # noqa: E402
     pipelines,
     settings,
     tasks,
+    workspace,
 )
 from services.streaming import streaming_manager  # noqa: E402
 
@@ -108,6 +109,7 @@ app.include_router(conversations.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
+app.include_router(workspace.router, prefix="/api")
 
 
 @app.get("/health")
