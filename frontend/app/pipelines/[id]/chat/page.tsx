@@ -629,7 +629,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
                 onSendFeedback={(feedback) => void sendUserMessage(feedback)}
               />
             ) : (
-              <PipelineChatMessage key={msg.id} msg={msg} participants={participants} />
+              <PipelineChatMessage key={msg.id} msg={msg} />
             );
           })}
 
@@ -648,7 +648,6 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
                     agentColor: agent?.avatar_color,
                     created_at: new Date().toISOString(),
                   }}
-                  participants={participants}
                 />
               );
             }

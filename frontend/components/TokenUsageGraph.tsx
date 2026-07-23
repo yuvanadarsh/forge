@@ -116,9 +116,17 @@ export default function TokenUsageGraph({ agentId, accentColor = "#f59e0b" }: Pr
   // null = loading
   const [points, setPoints] = useState<TokenUsagePoint[] | null>(null);
 
+  // Back to loading when the query changes — render-phase state adjustment
+  // (React's documented pattern), not a setState-in-effect.
+  const fetchKey = `${agentId}|${interval}`;
+  const [prevFetchKey, setPrevFetchKey] = useState(fetchKey);
+  if (prevFetchKey !== fetchKey) {
+    setPrevFetchKey(fetchKey);
+    setPoints(null);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    setPoints(null);
     getTokenUsage({ agent_id: agentId, interval })
       .then((series) => {
         if (!cancelled) setPoints(series.points);

@@ -1,3 +1,5 @@
+// Kept as reference — not imported in production.
+
 import type { Metric, Timeline, ModelSeries, DataPoint } from "@/components/CostAnalyticsChart";
 
 // ── Provider / model definitions ─────────────────────────────────────────────

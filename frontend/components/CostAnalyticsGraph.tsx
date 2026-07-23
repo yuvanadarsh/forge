@@ -63,9 +63,16 @@ export default function CostAnalyticsGraph() {
   // null = "all providers" until the user toggles a chip
   const [activeProviders, setActiveProviders] = useState<Set<string> | null>(null);
 
+  // Back to loading when the timeline changes — render-phase state adjustment
+  // (React's documented pattern), not a setState-in-effect.
+  const [prevTimeline, setPrevTimeline] = useState(timeline);
+  if (prevTimeline !== timeline) {
+    setPrevTimeline(timeline);
+    setBuckets(null);
+  }
+
   useEffect(() => {
     let cancelled = false;
-    setBuckets(null);
     getCostAnalytics({ interval: timeline })
       .then((res) => {
         if (!cancelled) setBuckets(res.buckets);
@@ -84,7 +91,10 @@ export default function CostAnalyticsGraph() {
     return [...seen].sort();
   }, [buckets]);
 
-  const active = activeProviders ?? new Set(providers);
+  const active = useMemo(
+    () => activeProviders ?? new Set(providers),
+    [activeProviders, providers]
+  );
 
   function toggleProvider(p: string) {
     setActiveProviders(() => {

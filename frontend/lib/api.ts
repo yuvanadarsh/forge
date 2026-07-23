@@ -1,6 +1,4 @@
 // Typed client for the Forge FastAPI backend.
-// Created in the backend-foundation session; the UI still renders mock data —
-// pages switch over to these functions next session.
 
 import type {
   AgentCreatePayload,
@@ -12,7 +10,6 @@ import type {
   BackendAgent,
   BackendAgentDetail,
   BackendConversation,
-  BackendMessage,
   BackendPipeline,
   BackendPipelineDetail,
   BackendTask,

@@ -5,7 +5,6 @@ import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 import { chatMarkdownComponents } from "@/components/chat/CodeBlock";
 import { ImageAttachmentGroup } from "@/components/chat/ImageAttachment";
-import type { BackendAgent } from "@/types";
 
 export interface PipelineChatMsg {
   id: string;
@@ -40,10 +39,9 @@ function renderWithMentions(text: string) {
 
 interface Props {
   msg: PipelineChatMsg;
-  participants?: BackendAgent[];
 }
 
-export default function PipelineChatMessage({ msg, participants = [] }: Props) {
+export default function PipelineChatMessage({ msg }: Props) {
   const isUser = msg.role === "user";
 
   // Determine if this is a relay (agent sending to another agent)

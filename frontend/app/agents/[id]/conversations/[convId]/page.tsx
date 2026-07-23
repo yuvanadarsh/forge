@@ -31,8 +31,6 @@ import {
 import { useForge } from "@/lib/store";
 import type { BackendConversation, BackendMessage } from "@/types";
 
-const PAGE_SIZE = 50;
-
 function timeStr(iso: string) {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
@@ -70,6 +68,16 @@ export default function ConversationPage({
 
   const conversation = agentConvos.find((c) => c.id === convId) ?? null;
 
+  // Reset paging state when navigating between conversations — render-phase
+  // state adjustment (React's documented pattern), not a setState-in-effect.
+  const [prevConvId, setPrevConvId] = useState(convId);
+  if (prevConvId !== convId) {
+    setPrevConvId(convId);
+    setMessages([]);
+    setOldestLoadedPage(1);
+    setMessagesLoading(!isNew);
+  }
+
   useEffect(() => {
     let cancelled = false;
     listConversations({ agent_id: id })
@@ -88,7 +96,6 @@ export default function ConversationPage({
   useEffect(() => {
     if (isNew) return;
     let cancelled = false;
-    setMessagesLoading(true);
     (async () => {
       try {
         const first = await listMessages(convId, 1);
