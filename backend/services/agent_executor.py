@@ -951,7 +951,8 @@ async def execute_agent(
             if iteration_text.strip():
                 final_text = iteration_text
 
-            if response.stop_reason != "tool_use":
+            tool_use_blocks = [b for b in response.content if b.type == "tool_use"]
+            if not tool_use_blocks:
                 # The model sometimes narrates an action ("Let me write the
                 # file:") and stops with end_turn instead of emitting a
                 # tool_use block — Anthropic's stop_reason is genuinely
@@ -962,6 +963,18 @@ async def execute_agent(
                 # tools still terminates. Exploration-only turns (ls, find,
                 # cat…) count the same as no tool at all — agents were
                 # exploring instead of writing and dodging the nudge.
+                #
+                # Branching on the absence of tool_use blocks (not on
+                # stop_reason) matters: a response can stop for a reason
+                # other than "tool_use" (e.g. "max_tokens") while still
+                # containing a fully-formed tool_use block. Nudging in that
+                # case would append the assistant turn with an orphaned
+                # tool_use id followed by a plain-text user turn — never a
+                # tool_result — which the Anthropic API rejects on the next
+                # call ("tool_use ids were found without tool_result blocks
+                # immediately after"). Any response carrying tool_use blocks
+                # must go through the tool-execution path below instead,
+                # regardless of stop_reason.
                 if not productive_tool_used and nudge_count < MAX_NO_TOOL_NUDGES:
                     nudge_count += 1
                     logger.info(
