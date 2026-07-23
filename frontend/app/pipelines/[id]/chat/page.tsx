@@ -2,7 +2,7 @@
 
 import { use, useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, useRouter } from "next/navigation";
 import PipelineChatMessage, { type PipelineChatMsg } from "@/components/PipelineChatMessage";
 import { type ChatImage } from "@/components/chat/ImageAttachment";
 import ToolCallCard, { summarizeToolArgs } from "@/components/ToolCallCard";
@@ -11,6 +11,7 @@ import PipelineChatInput from "@/components/PipelineChatInput";
 import PipelineParticipants, { type AgentActivity } from "@/components/PipelineParticipants";
 import PipelineExecutionPlan from "@/components/PipelineExecutionPlan";
 import ExportMenu from "@/components/chat/ExportMenu";
+import CreatePipelineModal from "@/components/CreatePipelineModal";
 import ErrorState from "@/components/ErrorState";
 import Toast from "@/components/Toast";
 import {
@@ -53,7 +54,8 @@ const nextLiveId = () => `live-${++liveIdCounter}`;
 
 export default function PipelineChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { state } = useForge();
+  const router = useRouter();
+  const { state, dispatch } = useForge();
 
   const [pipeline, setPipeline] = useState<BackendPipelineDetail | null>(null);
   const [fetchState, setFetchState] = useState<"loading" | "ready" | "notfound" | "error">("loading");
@@ -90,6 +92,8 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   // the same request/response (e.g. a slow generation the client timed out
   // on) — drives the "Agent is thinking…" indicator during the fallback poll.
   const [awaitingReply, setAwaitingReply] = useState(false);
+  // "Continue this project" — Create Pipeline modal with this workspace pre-filled.
+  const [showContinueModal, setShowContinueModal] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const activityTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
@@ -755,10 +759,48 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
           onImagesChange={setChatImages}
           onImageError={setToast}
         />
+
+        {/* Continue-this-project bar — a completed pipeline is a living workspace */}
+        {displayStatus === "completed" && (
+          <div className="px-6 pb-4 text-xs shrink-0" style={{ color: "#71717a" }}>
+            Working on something new in this project?{" "}
+            <button
+              onClick={() => setShowContinueModal(true)}
+              className="font-medium transition-colors duration-150"
+              style={{ color: "#f59e0b" }}
+              onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#d97706")}
+              onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#f59e0b")}
+            >
+              → Start new pipeline in this workspace
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Right panel — participants */}
       <PipelineParticipants agents={participants} activity={agentActivity} />
+
+      {showContinueModal && (
+        <CreatePipelineModal
+          onClose={() => setShowContinueModal(false)}
+          onCreate={(created) => {
+            dispatch({ type: "ADD_PIPELINE", pipeline: created });
+            try {
+              // Cross-page handoff (Session 8 pattern): the pipelines page
+              // shows the toast and polls the drafting plan on mount.
+              sessionStorage.setItem("forge:toast", `Pipeline "${created.title}" created`);
+              if (!created.plan_md || created.agent_sequence.length === 0) {
+                sessionStorage.setItem("forge:pending-plan", created.id);
+              }
+            } catch {
+              // sessionStorage unavailable — the pipelines page still lists the new card
+            }
+            router.push("/pipelines");
+          }}
+          onError={(message) => setToast(`Could not create pipeline: ${message}`)}
+          continueFrom={{ workspacePath: pipeline.workspace_path, fromTitle: pipeline.title }}
+        />
+      )}
 
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}
     </div>
