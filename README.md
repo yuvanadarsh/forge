@@ -149,6 +149,23 @@ API health check: <http://localhost:8000/health> · API docs: <http://localhost:
 Prefer something smaller? Create a **task**, assign an agent, and hit **Run →**
 for a single-agent execution — same tools, same audit trail, no pipeline.
 
+## Execution Modes
+
+Forge gives you control over how autonomously agents work:
+
+| Mode       | Terminal Commands | File Access    | Inter-agent handoffs  |
+| ---------- | ----------------- | -------------- | --------------------- |
+| Full Auto  | Always run        | Always allowed | Seamless              |
+| Supervised | Ask first         | Always allowed | Pauses between agents |
+| Strict     | Ask first         | Ask first      | Ask first             |
+
+**Approval gates** in the execution plan always pause regardless of mode —
+these are intentional checkpoints where you review what was built before
+the next phase begins.
+
+Set your global default in Settings → Security & Execution.
+Override per-pipeline when creating a new pipeline.
+
 ## Working with Forge
 
 **Each pipeline is a job, not a project.** Point multiple pipelines at the
@@ -189,16 +206,16 @@ read at a time.
 
 ## Tech Stack
 
-| Layer | Tech |
-|---|---|
-| Frontend | Next.js 16 (App Router), TypeScript (strict), Tailwind CSS, Geist |
-| Backend | FastAPI (Python 3.11), async SQLAlchemy 2.0, asyncpg |
-| Orchestration | LangGraph (state graph, checkpointed interrupts) |
-| LLM / Embeddings | Anthropic SDK · VoyageAI (voyage-3, 1024-dim) |
-| Database | PostgreSQL on host with pgvector + pgcrypto |
-| Security | AES-256-GCM key vault, workspace containment, command allow/deny lists |
-| Ops | Docker Compose (backend + frontend; DB stays on host) |
-| Distribution | Pre-built images on GHCR (`ghcr.io/yuvanadarsh/forge-backend`, `-frontend`), published by GitHub Actions on every push to main |
+| Layer            | Tech                                                                                                                           |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Frontend         | Next.js 16 (App Router), TypeScript (strict), Tailwind CSS, Geist                                                              |
+| Backend          | FastAPI (Python 3.11), async SQLAlchemy 2.0, asyncpg                                                                           |
+| Orchestration    | LangGraph (state graph, checkpointed interrupts)                                                                               |
+| LLM / Embeddings | Anthropic SDK · VoyageAI (voyage-3, 1024-dim)                                                                                  |
+| Database         | PostgreSQL on host with pgvector + pgcrypto                                                                                    |
+| Security         | AES-256-GCM key vault, workspace containment, command allow/deny lists                                                         |
+| Ops              | Docker Compose (backend + frontend; DB stays on host)                                                                          |
+| Distribution     | Pre-built images on GHCR (`ghcr.io/yuvanadarsh/forge-backend`, `-frontend`), published by GitHub Actions on every push to main |
 
 Two ways to run the containers: `docker-compose.yml` builds from source (dev),
 while `docker-compose.prod.yml` pulls the pre-built GHCR images — that's what
@@ -209,16 +226,16 @@ while `docker-compose.prod.yml` pulls the pre-built GHCR images — that's what
 <!-- Add screenshots to docs/screenshots/ and update the paths below. -->
 
 ![Dashboard](docs/screenshots/dashboard.png)
-*The dashboard — live agent grid, cost analytics, and the operations kanban.*
+_The dashboard — live agent grid, cost analytics, and the operations kanban._
 
 ![Pipeline chat with approval gate](docs/screenshots/pipeline-chat.png)
-*Pipeline chat mid-run — streaming tokens, tool calls, and an approval gate waiting on you.*
+_Pipeline chat mid-run — streaming tokens, tool calls, and an approval gate waiting on you._
 
 ![Atlas creating an agent](docs/screenshots/atlas.png)
-*Atlas designing and creating a new specialist agent from a chat request.*
+_Atlas designing and creating a new specialist agent from a chat request._
 
 ![Create pipeline with auto-plan](docs/screenshots/create-pipeline.png)
-*Auto-plan picks the team, drafts the execution plan, and waits for your approval.*
+_Auto-plan picks the team, drafts the execution plan, and waits for your approval._
 
 ## Roadmap
 

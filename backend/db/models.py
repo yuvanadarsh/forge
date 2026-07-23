@@ -102,6 +102,9 @@ class Pipeline(Base):
     plan_md: Mapped[str] = mapped_column(Text, server_default=text("''"))
     suggestion_reasoning: Mapped[str | None] = mapped_column(Text)
     workspace_path: Mapped[str] = mapped_column(Text)
+    # None = use global settings; 'full_auto' | 'supervised' | 'strict' overrides
+    # Settings.terminal_execution / Settings.strict_mode for this pipeline only.
+    execution_mode: Mapped[str | None] = mapped_column(String(20), nullable=True, default=None)
     approved_at: Mapped[datetime | None] = mapped_column()
     archived_at: Mapped[datetime | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(server_default=text("now()"))

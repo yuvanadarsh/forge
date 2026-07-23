@@ -217,6 +217,59 @@ history entry.
 - denied_commands: string[] — always blocked regardless of terminal_execution setting
 - Every file access logged to file_access_log, every command to command_log
 
+## Execution Modes & Per-Pipeline Overrides (Session 15)
+
+- Pipeline.execution_mode (migration 010, `pipelines.execution_mode
+  VARCHAR(20) DEFAULT NULL`; 001_initial.sql carries it for fresh installs)
+  — NULL = use global Settings (terminal_execution/strict_mode); else
+  'full_auto' | 'supervised' | 'strict'. Set at pipeline creation via
+  POST /api/pipelines `execution_mode` (validated against those three
+  values), surfaced read-only afterward (no PATCH endpoint yet)
+- The three modes, and what makes each one fire NeedsApprovalError or an
+  inter-agent pause:
+  - `full_auto`: strict_mode=False, terminal_execution='always_proceed'
+    for this pipeline regardless of global settings — no per-command
+    approval, no inter-agent pause (unless plan_md defines an explicit
+    gate — those always apply, any mode)
+  - `supervised`: terminal_execution='request_review' for this pipeline,
+    AND every agent handoff pauses for approval (orchestrator gates after
+    every agent, not just an explicit plan_md gate)
+  - `strict`: strict_mode=True for this pipeline — every tool call
+    (read/write/command) requires approval, AND every agent handoff
+    pauses (same every-boundary gating as supervised)
+  - `None` (use global settings): falls back to Settings.terminal_execution
+    / Settings.strict_mode exactly as before this session; strict_mode=True
+    globally also gates every inter-agent handoff (see bug fix below)
+- agent_executor._effective_settings_dict(settings, execution_mode) is the
+  single place that turns a pipeline's execution_mode into the
+  terminal_execution/strict_mode pair tool_registry's command policy reads
+  — execute_agent takes execution_mode as a parameter (orchestrator passes
+  pipeline.execution_mode; task runs, which have no pipeline, pass None)
+- orchestrator._gate_every_boundary(execution_mode, global_strict_mode)
+  resolves whether the LangGraph phase-boundary interrupt fires between
+  EVERY agent (supervised/strict, or None with global strict_mode on) or
+  only where plan_md defines an explicit gate (full_auto, or None with
+  strict_mode off)
+- Bug fixed this session: the default plan template (and most
+  LLM-generated plans) include a generic "## Phase 2" heading for
+  structure; the orchestrator used to treat ANY "## Phase 2" heading as an
+  implicit approval gate, so pipelines paused between agents even with
+  Strict Mode off and Terminal Execution set to Always Proceed. The gate
+  now only fires on an explicit `### Approval Gate` heading (or a
+  `<!-- gate_after: N -->` marker) in plan_md — see
+  orchestrator._explicit_gate_indices — or when strict_mode/execution_mode
+  says every boundary gates
+- Also fixed: tool_registry's `agent_decides` policy was requiring approval
+  for every command not on the allow list (identical to request_review).
+  It now only requires approval for commands matching
+  tool_registry._RISKY_COMMAND_PATTERNS (rm, sudo, chmod, chown, dd, mkfs,
+  wget, curl -o/--output) and lets everything else run — the "balanced
+  default" the Settings UI copy always claimed but didn't implement
+- CreatePipelineModal's "Execution Mode" section defaults to "Use global
+  settings" and is entirely optional — omitting execution_mode (or
+  choosing the default option, which sends `undefined`) preserves the
+  pipeline's old behavior exactly
+
 ## Cost Protection (Session 9)
 
 - settings columns: max_run_cost ($5 default, per pipeline run), max_agent_cost
@@ -568,6 +621,7 @@ backend/
     migrations/007_tool_call_messages.sql — role CHECK gains 'tool_call' (Session 11)
     migrations/008_chat_images.sql   — messages.image_data + image_media_type (Session 12)
     migrations/009_message_images.sql — message_images table, multi-image (Session 13)
+    migrations/010_execution_mode.sql — pipelines.execution_mode (Session 15)
     seeds/001_eternal_agents.sql     — Atlas; run on every startup (Session 9)
   requirements.txt
   Dockerfile
@@ -1031,6 +1085,34 @@ backend/
 - forge:pending-plan sessionStorage handoff introduced (see
   Pipeline-per-Feature section) — reuse it if any other page ever
   creates a pipeline and redirects to /pipelines
+
+### Session 15 (2026-07-22) — Always-proceed bug fix, per-pipeline execution mode, settings clarity
+
+- Root cause of the always-proceed bug: the orchestrator's phase-boundary
+  gate heuristic treated ANY "## Phase 2" heading in plan_md as an
+  implicit approval gate — and the default plan template (used whenever
+  no LLM/agent is available to draft a real plan) always contains a
+  "## Phase 2" heading purely for structure. Every fallback-drafted
+  pipeline therefore paused between agent 0 and agent 1 regardless of
+  Strict Mode or Terminal Execution. Fixed by requiring an explicit
+  `### Approval Gate` heading (or `<!-- gate_after: N -->` marker) —
+  see Execution Modes section above
+- tool_registry's `agent_decides` policy had the same bug in spirit: it
+  required approval for every command not on the allow list, identical to
+  request_review in practice, despite the Settings UI describing it as a
+  "balanced default." Fixed with a risky-command pattern list
+- Added Pipeline.execution_mode as a per-pipeline override of global
+  Settings (full_auto/supervised/strict/None) — see Execution Modes
+  section above for the full design
+- README's Execution Modes table (Full Auto / Supervised / Strict) is
+  reproduced verbatim from the session spec; note it doesn't literally
+  match orchestrator behavior for Supervised — the table says inter-agent
+  handoffs are "Seamless" under Supervised, but the implementation (and
+  this file's Execution Modes section above) has Supervised pause at
+  every agent boundary, per the session spec's own Group 2 instructions
+  ("pause and wait for approval at each agent boundary"). Flagged here
+  rather than silently resolved — worth confirming which is intended
+  before the next session touches this area
 
 ## CLAUDE.md Rules
 

@@ -67,6 +67,7 @@ CREATE TABLE pipelines (
     plan_md        TEXT NOT NULL DEFAULT '',
     suggestion_reasoning TEXT,           -- CEO's reasoning when auto-suggested, else NULL
     workspace_path TEXT NOT NULL,
+    execution_mode VARCHAR(20),          -- NULL = use global settings; else full_auto/supervised/strict
     approved_at    TIMESTAMPTZ,
     archived_at    TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now()

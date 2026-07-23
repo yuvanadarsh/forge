@@ -41,6 +41,9 @@ class PipelineCreate(BaseModel):
     folder_name: str | None = None  # workspace folder name; falls back to a slug of title
     created_by: uuid.UUID | None = None
     auto_suggest: bool = False
+    # None = use global Settings; 'full_auto' | 'supervised' | 'strict' overrides
+    # terminal_execution/strict_mode for this pipeline only (see orchestrator.py).
+    execution_mode: str | None = None
 
 
 class PipelineOut(BaseModel):
@@ -55,6 +58,7 @@ class PipelineOut(BaseModel):
     plan_md: str
     suggestion_reasoning: str | None = None
     workspace_path: str
+    execution_mode: str | None = None
     approved_at: datetime | None
     archived_at: datetime | None = None
     created_at: datetime
@@ -99,8 +103,16 @@ async def list_pipelines(db: AsyncSession = Depends(get_db)) -> list[Pipeline]:
     return list(rows.scalars().all())
 
 
+VALID_EXECUTION_MODES = {"full_auto", "supervised", "strict"}
+
+
 @router.post("", response_model=PipelineOut, status_code=201)
 async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_db)) -> Pipeline:
+    if body.execution_mode is not None and body.execution_mode not in VALID_EXECUTION_MODES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"execution_mode must be one of {sorted(VALID_EXECUTION_MODES)} or omitted",
+        )
     if body.auto_suggest:
         agent_sequence: list[uuid.UUID] = []  # auto-plan fills this in the background
     else:
@@ -136,6 +148,7 @@ async def create_pipeline(body: PipelineCreate, db: AsyncSession = Depends(get_d
         created_by=body.created_by,
         plan_md=body.plan_md,
         workspace_path=workspace_path,
+        execution_mode=body.execution_mode,
     )
     db.add(pipeline)
     await db.commit()
