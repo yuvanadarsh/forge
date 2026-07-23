@@ -68,6 +68,16 @@ Real-key verification DONE (Session 12) — a live Anthropic key now sits in
 the local vault; a full pipeline run, post-completion chat replies, and
 image content blocks were all verified against the real API.
 
+SESSION 16 (2026-07-23) — LOCAL RAG & LARGE FILE TOOLS: VoyageAI replaced
+by local sentence-transformers embeddings (all-MiniLM-L6-v2, 384 dims,
+no API key), agent_memory wiped + retyped by migration 011, workspace
+indexing for semantic codebase search (replaces Session 12
+auto-ingestion entirely; search_codebase is now vector search scoped by
+workspace_path), three large-file tools (append_file, read_file_section,
+replace_in_file), and the EXECUTION_RULE rewrite teaching agents the
+chunked-write / section-read / targeted-fix workflow. New "Local
+Embeddings & Workspace RAG" section below + Session 16 history entry.
+
 SESSION 14 (2026-07-22) — FINAL CLEANUP & SHIP: full lint cleanup (tsc,
 eslint, and next build all pass clean — every remaining
 react-hooks/set-state-in-effect error fixed), collapsible execution plan
@@ -114,7 +124,9 @@ history entry.
 - FastAPI (Python 3.11+), async SQLAlchemy, asyncpg
 - LangGraph for agent orchestration and pipeline state management
 - PostgreSQL (local via Homebrew, port 5432) with pgvector extension already installed
-- VoyageAI for embeddings (voyage-3, 1024 dimensions)
+- ~~VoyageAI for embeddings (voyage-3, 1024 dimensions)~~ sentence-transformers
+  for embeddings, run locally (all-MiniLM-L6-v2, 384 dimensions) — no
+  VOYAGE_API_KEY / no embedding API key at all (Session 16)
 - Anthropic SDK for LLM calls (primary provider)
 - cryptography library for AES-256 API key encryption
 
@@ -411,21 +423,90 @@ history entry.
 - remarkGfm + the shared .markdown-body class (Session 13) carried over
   unchanged — tables in plan_md render styled, not as raw pipes
 
-## Existing Project Auto-Ingestion (Session 12)
+## Local Embeddings & Workspace RAG (Session 16)
 
-- run_pipeline scans a non-empty workspace before building the graph:
+- Embeddings run locally: sentence-transformers all-MiniLM-L6-v2 (384
+  dims), lazy-loaded on first use (~90MB one-time download; get_model
+  logs "Loading embedding model (first run may take 30s)..."). VoyageAI
+  and VOYAGE_API_KEY are gone from requirements, compose files,
+  .env.example, and the Settings Embeddings UI. memory_service.embed /
+  embed_batch are sync + CPU-bound — call embed_async (or
+  asyncio.to_thread) from async code so the event loop keeps serving
+  WebSocket streams
+- Migration 011 TRUNCATEs agent_memory ON PURPOSE: every existing row
+  was a VoyageAI 1024-dim TEST vector — no functional value, and pgvector
+  cannot cast between dimensions, so wiping beats migrating. 011 also
+  retypes embedding to vector(384), relaxes agent_id to NULLABLE
+  (workspace chunks have no owning agent), adds memory_type
+  ('agent' | 'codebase_chunk'), workspace_path, source_file, file_hash,
+  the (workspace_path, memory_type) index, widens file_access_log's
+  operation CHECK with append/read_section/replace, and updates
+  settings.embedding_model. 001_initial.sql kept in step (fresh installs)
+- workspace_indexer.index_workspace runs at pipeline start and REPLACES
+  the Session 12 auto-ingestion path (struck below — scan summary,
+  prior_context prepend, 📁 message, and scanned:N status all removed,
+  not left running in parallel): text files <100KB are chunked into
+  200-line segments with 20-line overlap and stored as
+  memory_type='codebase_chunk' rows, embedded in per-file batches
+- Chunks are keyed by NORMALIZED workspace_path
+  (tool_registry.normalize_workspace_path — writer and reader must agree
+  exactly), NOT pipeline id: pipelines pointed at the same folder share
+  one index (pipeline-per-feature pattern). Re-indexing is incremental
+  via sha256 file_hash — unchanged files skip, changed files replace
+  their chunks, deleted files' chunks are pruned.
+  source_pipeline_run_id records which run indexed each chunk
+- Codebase chunks are EXCLUDED from automatic pre-call memory recall
+  (search_memories filters memory_type != 'codebase_chunk'): they enter
+  context ONLY through an explicit search_codebase tool call — keeps
+  per-turn token cost predictable, matching the Session 9 cost-ceiling
+  design
+- search_codebase is now semantic: top-5 chunks by pgvector cosine
+  distance, workspace_path-scoped; the distance is a selected label()
+  column, not a row attribute. The index is a run-start snapshot — files
+  written mid-run are not searchable until the next run (the tool
+  description and the empty-result message both say so to the agent)
+- Indexing progress streams as status "indexing:done/total" — the
+  frontend updates ONE in-place chat note (same status→note conversion
+  slot the old scanned:N used) and a final "indexed:N" settles its text;
+  a "📚 Forge indexed N code chunks…" role='system' message persists to
+  the pipeline conversation ("index is up to date" variant when nothing
+  changed). Indexing failure logs and never blocks the run
+- Large-file tools in tool_registry (same _resolve_safe containment +
+  file_access_log auditing as read/write): append_file (append/create,
+  chunked writing), read_file_section (1-indexed inclusive, reads to EOF
+  past the last line, NO whole-file size gate on purpose — but the
+  section itself is capped at MAX_READ_BYTES), replace_in_file (FIRST
+  occurrence only, hard ToolError when old_content is absent so a stale
+  snippet can never silently no-op). append_file + replace_in_file count
+  as productive in the executor's nudge check
+- EXECUTION_RULE is a module-level constant now (agent_executor):
+  400-line write/append chunking with wc -l verification, section
+  reads + search_codebase-first discovery, replace_in_file for fixes
+- Docker: both compose files mount a huggingface_cache named volume so
+  container recreation doesn't re-download the model
+- PR #31's truncated-tool-input KeyError guard was found STRANDED — it
+  merged into fix/tool-result-pairing AFTER that branch had already
+  merged to main, so main never got it. Cherry-picked into this branch;
+  without it the new multi-arg tools (replace_in_file especially) would
+  re-expose the exact truncated-args crash it fixed
+
+## ~~Existing Project Auto-Ingestion (Session 12)~~ (replaced by Workspace RAG, Session 16)
+
+~~- run_pipeline scans a non-empty workspace before building the graph:
   gitignore-aware walk (reuses tool_registry._load_gitignore/_is_ignored,
   same precedent as planner importing executor privates), skips dot-dirs
   and node_modules/dist/build/etc, lists up to 200 files, excerpts up to
   20 files under 50KB (1500 chars each; README/package.json/pyproject/
   docker-compose read first). Empty/missing workspace → no scan (fresh
-  project). Scan failure logs but NEVER blocks the run.
-- The summary is prepended to the FIRST agent's prior_context as a user
+  project). Scan failure logs but NEVER blocks the run.~~
+~~- The summary is prepended to the FIRST agent's prior_context as a user
   turn; a role='system' "📁 Forge scanned your project — N files indexed"
   message is persisted to the pipeline conversation (pipeline chat now
   renders role='system' as a centered note); live viewers get a
   "scanned:N" status event which the frontend converts to a chat note —
-  NOT a run status
+  NOT a run status~~
+- (Still true, not scan-specific:) pipeline chat renders role='system'
+  as a centered note
 - executor._normalize_turns merges prior context into user-first
   alternating turns and prepends a framing user turn when the list would
   start with assistant — this also fixed the latent agent-2+ bug where
@@ -492,9 +573,12 @@ history entry.
 
 - Agent = definition (system_prompt, model, specialty) stored in agents table
 - Same agent definition can run in multiple simultaneous pipelines
-- Before each LLM call: query agent_memory for relevant context (top 5, threshold 0.3)
+- Before each LLM call: query agent_memory for relevant context (top 5, threshold 0.3;
+  memory_type='agent' rows only — codebase chunks are never auto-recalled, Session 16)
 - After each LLM call: save output to messages + agent_memory + token_usage tables
-- Tools available: read_file, write_file, run_command, search_codebase
+- ~~Tools available: read_file, write_file, run_command, search_codebase~~
+  Tools available: read_file, write_file, append_file, read_file_section,
+  replace_in_file, run_command, search_codebase (semantic, Session 16)
 - All tool calls respect workspace_path boundary — path traversal protection enforced
 
 ## LangGraph Pipeline Flow
@@ -660,6 +744,11 @@ backend/
 - install.sh requires the GHCR images to be published (a push to main
   must have run .github/workflows/publish.yml) — on a fork or before
   first publish, use the build-from-source path instead
+- The codebase search index is a run-start snapshot — files an agent
+  writes during a run are not searchable via search_codebase until the
+  next run on that workspace (agents are told to use read_file for them)
+- First embedding use needs internet once (~90MB model download); fully
+  offline afterward (cached in the huggingface_cache volume under Docker)
 - Single user only — no authentication (also listed above; it is the
   first limitation new deployers should know)
 
@@ -1113,6 +1202,52 @@ backend/
   ("pause and wait for approval at each agent boundary"). Flagged here
   rather than silently resolved — worth confirming which is intended
   before the next session touches this area
+
+### Session 16 (2026-07-23) — Local RAG, workspace indexing, large file tools
+
+- agent_memory was wiped via TRUNCATE inside migration 011 (not a manual
+  step) so the same migration works on ANY install with old rows —
+  pgvector cannot ALTER a column between dimensions with data present.
+  Local table was already empty (0 rows) when checked; the wipe is
+  correctness for other installs, not just this machine
+- The spec's per-file "skip unchanged" check needed storage the schema
+  didn't have: added source_file + file_hash columns (beyond the spec'd
+  workspace_path) to agent_memory in 011 — chunk attribution by parsing
+  content strings was rejected as fragile. Also not in the spec but
+  required: file_access_log's operation CHECK had to widen (append/
+  read_section/replace) or every new tool's audit INSERT would violate it
+- agent_memory has no pipeline_id column — the spec's "record pipeline_id"
+  maps to the existing source_pipeline_run_id FK (schema is source of
+  truth, Session 9 precedent). ON DELETE SET NULL means chunks survive
+  run/pipeline deletion, which is exactly the workspace-persistence
+  behavior the scoping decision wants
+- embed() is sync per spec, but every async call site goes through
+  embed_async/asyncio.to_thread — encode() is CPU-bound and would
+  otherwise freeze the event loop (and WS streaming) during indexing;
+  double-checked-lock lazy model init keeps concurrent first calls from
+  loading the model twice
+- Settings.embedding_model default changed to 'all-MiniLM-L6-v2' (011
+  UPDATE + models.py server_default); EmbeddingsSection no longer takes
+  an embeddingModel prop — the model is a fact of the build now, not a
+  setting, so the UI shows a static "local" field
+- The old scan's _normalize_turns framing-turn behavior and the
+  running:<agent> status normalization were NOT removed with the scan —
+  they fix API-shape bugs independent of ingestion (only the scan
+  summary, 📁 message, and scanned:N handling died)
+- sentence-transformers==3.0.1 installs cleanly in the python 3.13 local
+  venv (no Docker/local pin split needed this time, unlike voyageai in
+  Session 5)
+- Discovered mid-session: PR #31 (truncated tool_use input KeyError fix)
+  had merged into fix/tool-result-pairing — a branch already merged to
+  main — so main never received it. Cherry-picked 1c8850e into this
+  branch since replace_in_file/read_file_section add new required-args
+  subscripts at the exact dispatch boundary it guards. If another
+  stranded-PR situation appears, check `gh pr view N --json baseRefName`
+  before assuming a MERGED PR's commits reached main
+- Verified against the live DB (scratchpad test, rows cleaned up): chunk
+  boundary math (1-200/181-380/361-450 for 450 lines), unchanged-skip,
+  changed-file replace, deleted-file prune, top-hit relevance for a
+  natural-language query, and recall exclusion of codebase chunks
 
 ## CLAUDE.md Rules
 
