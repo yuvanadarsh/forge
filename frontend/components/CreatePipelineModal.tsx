@@ -9,6 +9,31 @@ function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+type ExecutionModeChoice = "default" | "full_auto" | "supervised" | "strict";
+
+const EXECUTION_MODE_OPTIONS: { value: ExecutionModeChoice; label: string; description: string }[] = [
+  {
+    value: "default",
+    label: "Use global settings (default)",
+    description: "Follows your Security & Execution settings — the same behavior every pipeline had before.",
+  },
+  {
+    value: "full_auto",
+    label: "Full Auto",
+    description: "Runs start to finish without interruption after you approve it. Best for well-defined, trusted tasks.",
+  },
+  {
+    value: "supervised",
+    label: "Supervised",
+    description: "Pauses between each agent for your review before the next one starts.",
+  },
+  {
+    value: "strict",
+    label: "Strict",
+    description: "Requires approval for every file and command an agent runs. Slowest, most controlled.",
+  },
+];
+
 export interface ContinueFrom {
   /** workspace_path of the completed pipeline being continued. */
   workspacePath: string;
@@ -45,6 +70,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
   const [existingPath, setExistingPath] = useState(continueFrom?.workspacePath ?? "");
   const [folderName, setFolderName] = useState("");
   const [folderNameEdited, setFolderNameEdited] = useState(false);
+  const [executionMode, setExecutionMode] = useState<ExecutionModeChoice>("default");
   const [submitting, setSubmitting] = useState(false);
   const titleRef = useRef<HTMLInputElement>(null);
 
@@ -111,6 +137,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
         workspace_path:
           workspaceMode === "existing" && existingPath.trim() ? existingPath.trim() : undefined,
         folder_name: workspaceMode === "new" ? folderName.trim() : undefined,
+        execution_mode: executionMode === "default" ? undefined : executionMode,
       });
       onCreate(pipeline);
     } catch (err) {
@@ -333,6 +360,47 @@ export default function CreatePipelineModal({ onClose, onCreate, onError, contin
                 agents will see all existing files in this workspace.
               </p>
             )}
+          </div>
+
+          {/* Execution Mode */}
+          <div>
+            <label className="text-xs font-medium block mb-2" style={{ color: "#71717a" }}>
+              Execution Mode
+            </label>
+            <div className="space-y-1.5">
+              {EXECUTION_MODE_OPTIONS.map((option) => {
+                const selected = executionMode === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setExecutionMode(option.value)}
+                    className="flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors duration-150"
+                    style={{
+                      background: selected ? "#2a1a00" : "#0d0d0d",
+                      borderColor: selected ? "#f59e0b" : "#1f1f1f",
+                    }}
+                  >
+                    <span
+                      className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border"
+                      style={{ borderColor: selected ? "#f59e0b" : "#3f3f46" }}
+                    >
+                      {selected && <span className="h-2 w-2 rounded-full" style={{ background: "#f59e0b" }} />}
+                    </span>
+                    <span>
+                      <span className="block text-sm" style={{ color: selected ? "#f5f5f5" : "#71717a" }}>
+                        {option.label}
+                      </span>
+                      {selected && (
+                        <span className="mt-0.5 block text-xs leading-relaxed" style={{ color: "#71717a" }}>
+                          {option.description}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 

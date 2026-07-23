@@ -121,6 +121,8 @@ export interface BackendPipeline {
   /** Planner's reasoning when the pipeline was auto-planned, else null. */
   suggestion_reasoning: string | null;
   workspace_path: string;
+  /** null = use global Settings; overrides terminal_execution/strict_mode for this pipeline. */
+  execution_mode: "full_auto" | "supervised" | "strict" | null;
   approved_at: string | null;
   archived_at: string | null;
   created_at: string;
@@ -158,6 +160,8 @@ export interface PipelineCreatePayload {
   folder_name?: string;
   created_by?: string;
   auto_suggest?: boolean;
+  /** Omit (or leave undefined) to use global Settings. */
+  execution_mode?: "full_auto" | "supervised" | "strict";
 }
 
 export interface BackendTask extends Omit<Task, "assigned_to"> {

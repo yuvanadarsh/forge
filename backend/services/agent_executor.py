@@ -322,6 +322,34 @@ def _normalize_turns(messages: list[dict]) -> list[dict]:
     return merged
 
 
+def _effective_settings_dict(settings: Settings, execution_mode: str | None) -> dict:
+    """settings_dict for tool_registry's command policy, with the pipeline's
+    execution_mode (if any) overriding the global terminal_execution /
+    strict_mode. None means "use global settings" unchanged.
+
+    - full_auto: strict_mode off, terminal_execution always_proceed —
+      matches "runs start to finish without interruption after approval".
+    - supervised: terminal_execution request_review (agent boundaries are
+      gated separately, in the orchestrator).
+    - strict: strict_mode on — every action requires approval.
+    """
+    strict_mode = settings.strict_mode
+    terminal_execution = settings.terminal_execution
+    if execution_mode == "full_auto":
+        strict_mode = False
+        terminal_execution = "always_proceed"
+    elif execution_mode == "supervised":
+        terminal_execution = "request_review"
+    elif execution_mode == "strict":
+        strict_mode = True
+    return {
+        "terminal_execution": terminal_execution,
+        "strict_mode": strict_mode,
+        "allowed_commands": settings.allowed_commands,
+        "denied_commands": settings.denied_commands,
+    }
+
+
 def _build_system_prompt(
     agent: Agent, settings: Settings, workspace_path: str, memories: list
 ) -> str:
@@ -839,6 +867,7 @@ async def execute_agent(
     prior_context: list[dict],
     settings: Settings,
     streaming_manager: StreamingManager,
+    execution_mode: str | None = None,
 ) -> AgentOutput:
     session_factory = get_session_factory()
     # pipeline_run_id None = standalone task run: no WebSocket listener exists
@@ -870,12 +899,7 @@ async def execute_agent(
         }
     )
     messages = _normalize_turns(messages)
-    settings_dict = {
-        "terminal_execution": settings.terminal_execution,
-        "strict_mode": settings.strict_mode,
-        "allowed_commands": settings.allowed_commands,
-        "denied_commands": settings.denied_commands,
-    }
+    settings_dict = _effective_settings_dict(settings, execution_mode)
 
     output = AgentOutput(content="", tokens_used=0, input_tokens=0, output_tokens=0, cost_usd=0.0)
     final_text = ""

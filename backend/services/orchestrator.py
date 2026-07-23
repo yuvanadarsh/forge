@@ -161,17 +161,33 @@ def _explicit_gate_indices(plan_md: str, agent_count: int) -> set[int]:
     return set()
 
 
-def _gate_indices(plan_md: str, agent_count: int, strict_mode: bool) -> set[int]:
+def _gate_every_boundary(execution_mode: str | None, global_strict_mode: bool) -> bool:
+    """Whether EVERY agent handoff must pause for approval.
+
+    A pipeline's execution_mode overrides the global Strict Mode setting:
+    'full_auto' forces this off (autonomous end to end, even if Strict Mode
+    is globally on), 'supervised'/'strict' force it on, and None (use
+    global settings) falls back to Settings.strict_mode.
+    """
+    if execution_mode == "full_auto":
+        return False
+    if execution_mode in ("supervised", "strict"):
+        return True
+    return global_strict_mode
+
+
+def _gate_indices(plan_md: str, agent_count: int, gate_every_boundary: bool) -> set[int]:
     """0-based agent indices where the pipeline must pause for approval
     before the NEXT agent starts.
 
     Only two triggers, matching the execution-mode model: an explicit gate
-    in plan_md (always applies, any mode), or Strict Mode being on (pauses
-    between every agent). Neither Terminal Execution mode nor a plain phase
-    heading pauses inter-agent handoffs on its own.
+    in plan_md (always applies, any mode), or every-boundary gating being
+    on (Strict Mode, or execution_mode 'supervised'/'strict'). Neither
+    Terminal Execution mode nor a plain phase heading pauses inter-agent
+    handoffs on its own.
     """
     indices = _explicit_gate_indices(plan_md, agent_count)
-    if strict_mode:
+    if gate_every_boundary:
         indices |= set(range(agent_count - 1))
     return indices
 
@@ -256,6 +272,7 @@ def _make_agent_node(
             prior_context=state["messages"],
             settings=settings,
             streaming_manager=streaming_manager,
+            execution_mode=pipeline.execution_mode,
         )
 
         return {
@@ -423,8 +440,9 @@ async def run_pipeline(pipeline_run_id: uuid.UUID, db: AsyncSession) -> None:
         await streaming_manager.send_status(str(run.id), f"scanned:{file_count}")
 
     settings = (await db.execute(select(Settings))).scalar_one_or_none()
-    strict_mode = settings.strict_mode if settings is not None else False
-    gate_indices = _gate_indices(pipeline.plan_md, len(pipeline.agent_sequence), strict_mode)
+    global_strict_mode = settings.strict_mode if settings is not None else False
+    gate_every_boundary = _gate_every_boundary(pipeline.execution_mode, global_strict_mode)
+    gate_indices = _gate_indices(pipeline.plan_md, len(pipeline.agent_sequence), gate_every_boundary)
     graph = _build_graph(pipeline, run, conversation.id, gate_indices)
     config = {"configurable": {"thread_id": run.langgraph_thread_id}}
     initial_state: PipelineState = {
