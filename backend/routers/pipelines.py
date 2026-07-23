@@ -1,6 +1,7 @@
 """Pipelines router — CRUD, approval, gate resume, and run management."""
 
 import asyncio
+import logging
 import os
 import re
 import uuid
@@ -15,6 +16,8 @@ from db.connection import get_db
 from db.models import Agent, Conversation, Message, Pipeline, PipelineRun, Settings
 from services.orchestrator import start_pipeline_run
 from services.planner import generate_execution_plan, suggest_and_plan
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pipelines", tags=["pipelines"])
 
@@ -240,6 +243,9 @@ async def approve_gate(
     )
     await db.commit()
     await db.refresh(run)
+    logger.info(
+        "Gate: approve-gate flipped run %s to 'approved' (pipeline %s)", run.id, pipeline_id
+    )
     return RunOut.model_validate(run)
 
 
