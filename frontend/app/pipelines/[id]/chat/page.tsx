@@ -67,7 +67,22 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
   const [isResuming, setIsResuming] = useState(false);
   const [input, setInput] = useState("");
   const [chatImages, setChatImages] = useState<ChatImage[]>([]);
-  const [planCollapsed, setPlanCollapsed] = useState(false);
+  // Collapsed by default; the per-pipeline preference persists in localStorage.
+  const planOpenKey = `forge:plan-open:${id}`;
+  const [planCollapsed, setPlanCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return true;
+    return localStorage.getItem(planOpenKey) !== "1";
+  });
+  const togglePlan = () => {
+    setPlanCollapsed((prev) => {
+      try {
+        localStorage.setItem(planOpenKey, prev ? "1" : "0");
+      } catch {
+        // localStorage unavailable (private mode) — the toggle still works for this visit
+      }
+      return !prev;
+    });
+  };
   const [toast, setToast] = useState<string | null>(null);
   const [agentActivity, setAgentActivity] = useState<AgentActivity>({});
   // True while waiting on a post-completion reply that didn't come back in
@@ -543,7 +558,7 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
       <PipelineExecutionPlan
         planMd={pipeline.plan_md || "# Execution Plan\n\nNo plan provided for this pipeline."}
         collapsed={planCollapsed}
-        onToggle={() => setPlanCollapsed((v) => !v)}
+        onToggle={togglePlan}
       />
 
       {/* Center — chat */}

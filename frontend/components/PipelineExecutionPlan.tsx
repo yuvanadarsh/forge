@@ -4,6 +4,9 @@ import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
 
+const OPEN_WIDTH = 280;
+const COLLAPSED_WIDTH = 32;
+
 interface Props {
   planMd: string;
   collapsed: boolean;
@@ -12,23 +15,44 @@ interface Props {
 
 export default function PipelineExecutionPlan({ planMd, collapsed, onToggle }: Props) {
   return (
-    <div className="relative flex shrink-0" style={{ width: collapsed ? "0px" : "280px", transition: "width 200ms" }}>
-      {/* Panel content — overflow:hidden only wraps the content, not the toggle button */}
+    <div
+      className="relative shrink-0 border-r z-10"
+      style={{
+        width: collapsed ? COLLAPSED_WIDTH : OPEN_WIDTH,
+        transition: "width 200ms ease",
+        background: "#111111",
+        borderColor: "#1f1f1f",
+        overflow: "hidden",
+      }}
+    >
+      {/* Open panel — full width content that slides out to the left */}
       <div
-        className="flex flex-col border-r"
+        className="absolute inset-y-0 left-0 flex flex-col"
         style={{
-          width: collapsed ? "0px" : "280px",
-          background: "#111111",
-          borderColor: "#1f1f1f",
-          overflow: "hidden",
-          transition: "width 200ms",
-          flexShrink: 0,
+          width: OPEN_WIDTH,
+          transform: collapsed ? `translateX(-${OPEN_WIDTH}px)` : "translateX(0)",
+          transition: "transform 200ms ease",
         }}
+        aria-hidden={collapsed}
       >
-        <div className="px-4 py-4 border-b shrink-0" style={{ borderColor: "#1f1f1f" }}>
+        <div
+          className="px-4 py-4 border-b shrink-0 flex items-center justify-between"
+          style={{ borderColor: "#1f1f1f" }}
+        >
           <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#71717a" }}>
             Execution Plan
           </p>
+          <button
+            onClick={onToggle}
+            aria-label="Collapse execution plan"
+            title="Collapse plan"
+            className="w-6 h-6 flex items-center justify-center rounded-lg text-sm transition-colors duration-150"
+            style={{ color: "#71717a", border: "1px solid #2a2a2a" }}
+            onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5")}
+            onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#71717a")}
+          >
+            ‹
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {planMd ? (
@@ -72,16 +96,29 @@ export default function PipelineExecutionPlan({ planMd, collapsed, onToggle }: P
         </div>
       </div>
 
-      {/* Toggle button — sibling to the overflow:hidden div, always visible */}
+      {/* Collapsed tab — thin strip with 📋 and a rotated "Plan" label */}
       <button
         onClick={onToggle}
-        className="absolute top-4 -right-6 z-10 w-6 h-6 flex items-center justify-center rounded-r-lg text-xs transition-colors duration-150"
-        style={{ background: "#1f1f1f", color: "#71717a", border: "1px solid #2a2a2a", borderLeft: "none" }}
+        aria-label="Open execution plan"
+        title="Open plan"
+        className="absolute inset-0 flex flex-col items-center gap-2 pt-4 transition-colors duration-150"
+        style={{
+          opacity: collapsed ? 1 : 0,
+          pointerEvents: collapsed ? "auto" : "none",
+          transition: "opacity 200ms ease",
+          color: "#71717a",
+          background: "transparent",
+        }}
         onMouseEnter={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#f5f5f5")}
         onMouseLeave={(e) => ((e.currentTarget as HTMLButtonElement).style.color = "#71717a")}
-        title={collapsed ? "Expand plan" : "Collapse plan"}
       >
-        {collapsed ? "▶" : "◀"}
+        <span className="text-sm" aria-hidden>📋</span>
+        <span
+          className="text-[10px] font-semibold uppercase tracking-wider"
+          style={{ writingMode: "vertical-rl" }}
+        >
+          Plan
+        </span>
       </button>
     </div>
   );
