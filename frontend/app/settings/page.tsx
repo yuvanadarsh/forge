@@ -28,10 +28,29 @@ function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }
   );
 }
 
-const TERMINAL_EXECUTION_OPTIONS: { value: ForgeSettings["terminal_execution"]; label: string }[] = [
-  { value: "always_proceed", label: "Always Proceed" },
-  { value: "request_review", label: "Request Review" },
-  { value: "agent_decides", label: "Agent Decides" },
+const TERMINAL_EXECUTION_OPTIONS: {
+  value: ForgeSettings["terminal_execution"];
+  label: string;
+  description: string;
+}[] = [
+  {
+    value: "always_proceed",
+    label: "Always Proceed",
+    description:
+      "Agents run all commands without asking. Best for trusted pipelines running overnight. Fastest execution.",
+  },
+  {
+    value: "request_review",
+    label: "Request Review",
+    description:
+      "Agents ask before running any terminal command. You approve each one. Best for sensitive projects or unfamiliar codebases.",
+  },
+  {
+    value: "agent_decides",
+    label: "Agent Decides",
+    description:
+      "Agents use judgment — safe commands run automatically, risky ones (rm, sudo, curl) ask for approval. Balanced default.",
+  },
 ];
 
 interface SecurityDraft {
@@ -256,6 +275,50 @@ export default function SettingsPage() {
         </button>
       </div>
 
+      {/* How Execution Works */}
+      <div className={card} style={cardSt}>
+        <h3 className="text-sm font-semibold flex items-center gap-1.5 mb-3" style={{ color: "#f5f5f5" }}>
+          ⚡ How Forge runs your pipelines
+        </h3>
+        <p className="text-xs leading-relaxed mb-4" style={{ color: "#a1a1aa" }}>
+          Once you approve a pipeline, agents work autonomously until completion. The
+          execution mode controls how much oversight you have:
+        </p>
+        <div className="space-y-3">
+          {[
+            {
+              title: "Full Auto (Always Proceed, Strict Mode OFF)",
+              body: "Agents run start to finish. You only see results.",
+              best: "well-defined tasks, trusted codebases, overnight runs.",
+            },
+            {
+              title: "Supervised (Request Review)",
+              body: "Agents ask before each terminal command.",
+              best: "sensitive projects, learning what agents are doing.",
+            },
+            {
+              title: "Strict (Strict Mode ON)",
+              body: "Agents ask before every action including file reads.",
+              best: "maximum control, auditing agent behavior.",
+            },
+          ].map((mode) => (
+            <div key={mode.title}>
+              <p className="text-xs font-medium" style={{ color: "#f5f5f5" }}>{mode.title}</p>
+              <p className="text-xs leading-relaxed" style={{ color: "#71717a" }}>
+                → {mode.body}
+              </p>
+              <p className="text-xs leading-relaxed" style={{ color: "#71717a" }}>
+                → Best for: {mode.best}
+              </p>
+            </div>
+          ))}
+        </div>
+        <p className="text-xs leading-relaxed mt-4" style={{ color: "#a1a1aa" }}>
+          Per-pipeline override: set execution mode when creating a pipeline to override
+          these global defaults for that specific job.
+        </p>
+      </div>
+
       {/* Section 2: Security & Execution */}
       <div className={card} style={cardSt}>
         <SectionHeader
@@ -286,6 +349,9 @@ export default function SettingsPage() {
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </select>
+                <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "#71717a" }}>
+                  {TERMINAL_EXECUTION_OPTIONS.find((o) => o.value === security.terminal_execution)?.description}
+                </p>
               </div>
               <div>
                 <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>
@@ -311,6 +377,12 @@ export default function SettingsPage() {
                     {security.strict_mode ? "On — approve every action" : "Off"}
                   </span>
                 </button>
+                <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "#71717a" }}>
+                  When ON: agents ask for your approval before every file write, file read,
+                  and terminal command. Overrides Terminal Execution setting. Use for
+                  maximum control. Significantly slows execution. When OFF: agents work
+                  according to the Terminal Execution setting above.
+                </p>
               </div>
             </div>
 
@@ -369,6 +441,11 @@ export default function SettingsPage() {
           <LoadingSkeleton variant="text" count={2} />
         ) : (
           <div className="space-y-5">
+            <p className="text-xs leading-relaxed" style={{ color: "#71717a" }}>
+              Agents stop automatically when these limits are reached. A notification is
+              sent and the pipeline is marked failed. Raise these limits in Settings if
+              your pipelines need more budget.
+            </p>
             <div className="grid grid-cols-3 gap-4">
               {(
                 [

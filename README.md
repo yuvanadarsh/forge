@@ -149,6 +149,23 @@ API health check: <http://localhost:8000/health> · API docs: <http://localhost:
 Prefer something smaller? Create a **task**, assign an agent, and hit **Run →**
 for a single-agent execution — same tools, same audit trail, no pipeline.
 
+## Execution Modes
+
+Forge gives you control over how autonomously agents work:
+
+| Mode | Terminal Commands | File Access | Inter-agent handoffs |
+|------|------------------|-------------|---------------------|
+| Full Auto | Always run | Always allowed | Seamless |
+| Supervised | Ask first | Always allowed | Seamless |
+| Strict | Ask first | Ask first | Ask first |
+
+**Approval gates** in the execution plan always pause regardless of mode —
+these are intentional checkpoints where you review what was built before
+the next phase begins.
+
+Set your global default in Settings → Security & Execution.
+Override per-pipeline when creating a new pipeline.
+
 ## Working with Forge
 
 **Each pipeline is a job, not a project.** Point multiple pipelines at the
