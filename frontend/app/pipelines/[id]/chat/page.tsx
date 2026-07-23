@@ -10,6 +10,7 @@ import ApprovalGateCard from "@/components/ApprovalGateCard";
 import PipelineChatInput from "@/components/PipelineChatInput";
 import PipelineParticipants, { type AgentActivity } from "@/components/PipelineParticipants";
 import PipelineExecutionPlan from "@/components/PipelineExecutionPlan";
+import ExportMenu from "@/components/chat/ExportMenu";
 import ErrorState from "@/components/ErrorState";
 import Toast from "@/components/Toast";
 import {
@@ -592,6 +593,19 @@ export default function PipelineChatPage({ params }: { params: Promise<{ id: str
               </span>
             </div>
           </div>
+          <ExportMenu
+            input={{
+              title: pipeline.title,
+              statusLabel: s.label,
+              workspacePath: pipeline.workspace_path,
+              agentNames: participants.map((a) => a.name),
+              dateIso: run?.completed_at ?? pipeline.created_at,
+              planMd: pipeline.plan_md,
+              messages,
+              agentNameById: (aid) => agentById(aid)?.name,
+            }}
+            onError={setToast}
+          />
         </div>
 
         {/* Pipeline-not-running notice — only for idle states where chat is closed */}
