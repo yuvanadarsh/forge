@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_TOKENS = 16_384
 MAX_TOOL_ITERATIONS = 25          # hard stop against runaway tool loops
+MAX_NO_TOOL_NUDGES = 2            # corrective re-prompts before accepting a tool-free turn
 CONTEXT_VERBATIM_TAIL = 10        # prior-context messages kept verbatim when condensing
 APPROVAL_POLL_SECONDS = 2
 APPROVAL_TIMEOUT_SECONDS = 3600
@@ -907,6 +908,12 @@ async def execute_agent(
 
     try:
         # 3–5. Streaming tool-use loop
+        tools_for_agent = _tools_for(agent)
+        logger.info(
+            "Tools available to %s: %s", agent.name, [t["name"] for t in tools_for_agent]
+        )
+        any_tool_used = False
+        nudge_count = 0
         for _ in range(MAX_TOOL_ITERATIONS):
             # Cost guardrails: persisted spend plus this agent's in-flight
             # tokens, checked before every LLM call.
@@ -921,7 +928,7 @@ async def execute_agent(
                 max_tokens=MAX_OUTPUT_TOKENS,
                 system=system_prompt,
                 messages=messages,
-                tools=_tools_for(agent),
+                tools=tools_for_agent,
             ) as stream:
                 async for event in stream:
                     if event.type == "content_block_delta" and event.delta.type == "text_delta":
@@ -931,12 +938,43 @@ async def execute_agent(
             output.input_tokens += response.usage.input_tokens
             output.output_tokens += response.usage.output_tokens
 
+            logger.info("Response stop_reason: %s", response.stop_reason)
+
             iteration_text = "".join(b.text for b in response.content if b.type == "text")
             if iteration_text.strip():
                 final_text = iteration_text
 
             if response.stop_reason != "tool_use":
+                # The model sometimes narrates an action ("Let me write the
+                # file:") and stops with end_turn instead of emitting a
+                # tool_use block — Anthropic's stop_reason is genuinely
+                # end_turn here, not an error, so nothing upstream catches
+                # it. If no tool has run yet this whole agent turn, treat
+                # the announcement as unfinished and nudge the model to
+                # follow through, bounded so a task that truly needs no
+                # tools still terminates.
+                if not any_tool_used and nudge_count < MAX_NO_TOOL_NUDGES:
+                    nudge_count += 1
+                    logger.info(
+                        "Agent %s stopped (%s) without using a tool — nudging (%d/%d)",
+                        agent.name, response.stop_reason, nudge_count, MAX_NO_TOOL_NUDGES,
+                    )
+                    messages.append({"role": "assistant", "content": response.content})
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "You described an action but haven't called a tool yet. "
+                                "If the task requires writing files or running commands, "
+                                "call the appropriate tool now — don't just describe it. "
+                                "If you have genuinely finished with no tool use needed, "
+                                "say so explicitly."
+                            ),
+                        }
+                    )
+                    continue
                 break
+            any_tool_used = True
 
             # Execute every requested tool; return all results in ONE user message
             messages.append({"role": "assistant", "content": response.content})
@@ -944,6 +982,7 @@ async def execute_agent(
             for block in response.content:
                 if block.type != "tool_use":
                     continue
+                logger.info("TOOL CALL START: %s args=%s", block.name, dict(block.input))
                 await streaming_manager.send_tool_call(
                     run_id, block.name, dict(block.input), agent_id=str(agent.id)
                 )
@@ -964,6 +1003,7 @@ async def execute_agent(
                     is_error = False
                 except ToolError as exc:
                     result_str, is_error = f"Error: {exc}", True
+                logger.info("TOOL CALL END: %s result=%s", block.name, str(result_str)[:100])
                 await _persist_tool_call_end(
                     tool_msg_id, block.name, dict(block.input), result_str
                 )
