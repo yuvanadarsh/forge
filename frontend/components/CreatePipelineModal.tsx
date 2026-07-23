@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPipeline } from "@/lib/api";
 import { useForge } from "@/lib/store";
 import type { BackendPipeline } from "@/types";
@@ -9,15 +9,24 @@ function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 }
 
+export interface ContinueFrom {
+  /** workspace_path of the completed pipeline being continued. */
+  workspacePath: string;
+  /** Title of that pipeline — shown in the "Continuing from" note. */
+  fromTitle: string;
+}
+
 interface Props {
   onClose: () => void;
   /** Called with the persisted pipeline after a successful POST. */
   onCreate: (pipeline: BackendPipeline) => void;
   /** Called with the API error message; the modal stays open. */
   onError?: (message: string) => void;
+  /** Pre-fills the workspace from a previous pipeline ("continue this project"). */
+  continueFrom?: ContinueFrom;
 }
 
-export default function CreatePipelineModal({ onClose, onCreate, onError }: Props) {
+export default function CreatePipelineModal({ onClose, onCreate, onError, continueFrom }: Props) {
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === "Escape") onClose();
@@ -30,11 +39,18 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [selectedAgents, setSelectedAgents] = useState<string[]>([]);
-  const [workspaceMode, setWorkspaceMode] = useState<"new" | "existing">("new");
-  const [existingPath, setExistingPath] = useState("");
+  const [workspaceMode, setWorkspaceMode] = useState<"new" | "existing">(
+    continueFrom ? "existing" : "new",
+  );
+  const [existingPath, setExistingPath] = useState(continueFrom?.workspacePath ?? "");
   const [folderName, setFolderName] = useState("");
   const [folderNameEdited, setFolderNameEdited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const titleRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    titleRef.current?.focus();
+  }, []);
 
   function handleTitleChange(value: string) {
     setTitle(value);
@@ -133,6 +149,7 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
           <div>
             <label className="text-xs font-medium block mb-1.5" style={{ color: "#71717a" }}>Title</label>
             <input
+              ref={titleRef}
               value={title}
               onChange={(e) => handleTitleChange(e.target.value)}
               placeholder="e.g. Ship the billing dashboard"
@@ -309,6 +326,12 @@ export default function CreatePipelineModal({ onClose, onCreate, onError }: Prop
                   Select any file inside your project folder — Forge will use the containing directory.
                 </p>
               </div>
+            )}
+            {continueFrom && workspaceMode === "existing" && (
+              <p className="text-xs mt-2 leading-relaxed" style={{ color: "#a1793a" }}>
+                Continuing from: <span style={{ color: "#f59e0b" }}>{continueFrom.fromTitle}</span> —
+                agents will see all existing files in this workspace.
+              </p>
             )}
           </div>
         </div>

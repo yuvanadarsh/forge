@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/components/ConfirmDialog";
 import { deleteConversation } from "@/lib/api";
 import { useForge } from "@/lib/store";
@@ -22,10 +22,13 @@ export default function ConversationMenu({
   const [deleting, setDeleting] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  function setOpen(next: boolean) {
-    setOpenState(next);
-    onOpenChange?.(next);
-  }
+  const setOpen = useCallback(
+    (next: boolean) => {
+      setOpenState(next);
+      onOpenChange?.(next);
+    },
+    [onOpenChange]
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -34,7 +37,7 @@ export default function ConversationMenu({
     }
     document.addEventListener("mousedown", onOutside);
     return () => document.removeEventListener("mousedown", onOutside);
-  }, [open]);
+  }, [open, setOpen]);
 
   async function handleDelete() {
     setDeleting(true);

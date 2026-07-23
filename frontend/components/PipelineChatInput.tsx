@@ -38,26 +38,27 @@ export default function PipelineChatInput({
   onImageError,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
-  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const [focused, setFocused] = useState(false);
+  // Escape hides the picker for the value it was pressed on; typing anything
+  // (value changes) brings it back — same behavior the old effect had.
+  const [dismissedForValue, setDismissedForValue] = useState<string | null>(null);
 
-  // Detect @mention as user types
-  useEffect(() => {
-    const atIdx = value.lastIndexOf("@");
-    if (atIdx === -1) {
-      setMentionQuery(null);
-      return;
-    }
-    const afterAt = value.slice(atIdx + 1);
-    // Dismiss if space typed after @
-    if (afterAt.includes(" ")) {
-      setMentionQuery(null);
-      return;
-    }
-    setMentionQuery(afterAt.toLowerCase());
+  // @mention detection is derived from the input value, not synced state.
+  const atIdx = value.lastIndexOf("@");
+  const afterAt = atIdx === -1 ? null : value.slice(atIdx + 1);
+  // A space after the @ ends the mention
+  const detectedQuery =
+    afterAt === null || afterAt.includes(" ") ? null : afterAt.toLowerCase();
+  const mentionQuery = dismissedForValue === value ? null : detectedQuery;
+
+  // Reset the highlighted row whenever the query changes — render-phase
+  // state adjustment (React's documented pattern), not a setState-in-effect.
+  const [prevQuery, setPrevQuery] = useState(mentionQuery);
+  if (prevQuery !== mentionQuery) {
+    setPrevQuery(mentionQuery);
     setMentionIndex(0);
-  }, [value]);
+  }
 
   // Auto-resize up to MAX_TEXTAREA_LINES, then scroll internally.
   useEffect(() => {
@@ -74,10 +75,10 @@ export default function PipelineChatInput({
     : [];
 
   function insertMention(agent: BackendAgent) {
-    const atIdx = value.lastIndexOf("@");
-    const before = value.slice(0, atIdx);
+    // The trailing space after the inserted name ends the mention, so the
+    // derived query is null for the new value — no explicit dismissal needed.
+    const before = value.slice(0, value.lastIndexOf("@"));
     onChange(before + `@${agent.name} `);
-    setMentionQuery(null);
     ref.current?.focus();
   }
 
@@ -99,7 +100,7 @@ export default function PipelineChatInput({
         return;
       }
       if (e.key === "Escape") {
-        setMentionQuery(null);
+        setDismissedForValue(value);
         return;
       }
     }

@@ -1,3 +1,5 @@
+// Kept as reference — not imported in production.
+
 import type { Agent, Task, Pipeline, Conversation, Message } from "@/types";
 
 export const mockAgents: Agent[] = [

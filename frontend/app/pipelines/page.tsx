@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import ConfirmDialog from "@/components/ConfirmDialog";
-import CreatePipelineModal from "@/components/CreatePipelineModal";
+import CreatePipelineModal, { type ContinueFrom } from "@/components/CreatePipelineModal";
 import EmptyState from "@/components/EmptyState";
 import LoadingSkeleton from "@/components/LoadingSkeleton";
 import Toast from "@/components/Toast";
@@ -64,6 +64,8 @@ interface PipelineCardProps {
   onRestore: () => void;
   onForceStop: () => void;
   onToast: (message: string) => void;
+  /** "New Pipeline →" on completed cards — reuse this pipeline's workspace. */
+  onNewPipelineHere: () => void;
 }
 
 function PipelineCard({
@@ -79,6 +81,7 @@ function PipelineCard({
   onRestore,
   onForceStop,
   onToast,
+  onNewPipelineHere,
 }: PipelineCardProps) {
   const s = STATUS_STYLES[pipeline.status] ?? STATUS_STYLES.completed;
   const isActive = ACTIVE_STATUSES.includes(pipeline.status);
@@ -235,6 +238,18 @@ function PipelineCard({
                 >
                   Open Pipeline Chat
                 </Link>
+                {pipeline.status === "completed" && (
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      onNewPipelineHere();
+                    }}
+                    className={`${menuItem} hover:bg-[#1f1f1f]`}
+                    style={{ color: "#f59e0b" }}
+                  >
+                    New Pipeline →
+                  </button>
+                )}
                 {pipeline.status === "archived" ? (
                   <button
                     onClick={() => {
@@ -397,8 +412,18 @@ export default function PipelinesPage() {
   const { state, dispatch } = useForge();
   const [expanded, setExpanded] = useState<string | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  // Cross-page toast handoff (Session 8 pattern) — e.g. "continue this
+  // project" on the pipeline chat page creates a pipeline, then lands here.
+  const [toast, setToast] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    const pending = sessionStorage.getItem("forge:toast");
+    if (pending) sessionStorage.removeItem("forge:toast");
+    return pending;
+  });
   const [showCreateModal, setShowCreateModal] = useState(false);
+  // Set when opening the modal via "New Pipeline →" on a completed card —
+  // pre-fills the workspace so a new job continues the same project.
+  const [continueFrom, setContinueFrom] = useState<ContinueFrom | null>(null);
   const [showArchived, setShowArchived] = useState(false);
 
   const { pipelines, agents, loading } = state;
@@ -407,7 +432,14 @@ export default function PipelinesPage() {
 
   // Pipelines whose execution plan is still being drafted: poll every 3s
   // until plan_md lands (the backend always terminates in a non-empty plan).
-  const [pendingPlanIds, setPendingPlanIds] = useState<string[]>([]);
+  // Seeded from the cross-page handoff when a pipeline was just created
+  // elsewhere (pipeline chat's "continue this project" flow).
+  const [pendingPlanIds, setPendingPlanIds] = useState<string[]>(() => {
+    if (typeof window === "undefined") return [];
+    const handoff = sessionStorage.getItem("forge:pending-plan");
+    if (handoff) sessionStorage.removeItem("forge:pending-plan");
+    return handoff ? [handoff] : [];
+  });
 
   useEffect(() => {
     if (pendingPlanIds.length === 0) return;
@@ -441,6 +473,7 @@ export default function PipelinesPage() {
   function handleCreated(pipeline: BackendPipeline) {
     dispatch({ type: "ADD_PIPELINE", pipeline });
     setShowCreateModal(false);
+    setContinueFrom(null);
     setToast(`Pipeline "${pipeline.title}" created`);
     if (!pipeline.plan_md || pipeline.agent_sequence.length === 0) {
       setPendingPlanIds((prev) => [...prev, pipeline.id]);
@@ -523,6 +556,10 @@ export default function PipelinesPage() {
       onRestore={() => handleRestore(pipeline)}
       onForceStop={() => handleForceStop(pipeline)}
       onToast={setToast}
+      onNewPipelineHere={() => {
+        setContinueFrom({ workspacePath: pipeline.workspace_path, fromTitle: pipeline.title });
+        setShowCreateModal(true);
+      }}
     />
   );
 
@@ -598,9 +635,13 @@ export default function PipelinesPage() {
 
       {showCreateModal && (
         <CreatePipelineModal
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => {
+            setShowCreateModal(false);
+            setContinueFrom(null);
+          }}
           onCreate={handleCreated}
           onError={(message) => setToast(`Could not create pipeline: ${message}`)}
+          continueFrom={continueFrom ?? undefined}
         />
       )}
       {toast && <Toast message={toast} onClose={() => setToast(null)} />}

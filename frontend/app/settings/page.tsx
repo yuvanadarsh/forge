@@ -75,10 +75,12 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    refreshKeys().catch(() => {
-      setKeys([]);
-      setToast("Could not load API keys — is the backend running?");
-    });
+    listApiKeys()
+      .then(setKeys)
+      .catch(() => {
+        setKeys([]);
+        setToast("Could not load API keys — is the backend running?");
+      });
     getSettings()
       .then((s) => {
         setSettings(s);
@@ -96,7 +98,7 @@ export default function SettingsPage() {
         });
       })
       .catch(() => setToast("Could not load settings — is the backend running?"));
-  }, [refreshKeys, dispatch]);
+  }, [dispatch]);
 
   // The Anthropic row is always shown first; before a key exists it renders
   // as a "Not configured" default row (no delete button).

@@ -1,9 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 const DISMISS_KEY = "forge:onboarding-dismissed";
+
+// localStorage never notifies the same tab; dismissals in THIS tab re-render
+// via the dismissedNow state below, so only cross-tab changes need the event.
+function subscribeToStorage(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
 
 interface Props {
   /** Atlas's agent id — "Chat with Atlas" opens its new-conversation route. */
@@ -16,19 +23,21 @@ interface Props {
  * empty (only Atlas, no tasks). Dismissal persists in localStorage.
  */
 export default function OnboardingBanner({ atlasId, onCreateAgent }: Props) {
-  // localStorage is browser-only: start hidden and reveal after the mount
-  // check so SSR and the first client render agree.
-  const [visible, setVisible] = useState(false);
+  // localStorage is browser-only: the server snapshot reports "dismissed" so
+  // SSR and the hydration render agree (hidden), then React re-renders with
+  // the real stored value right after mount.
+  const dismissedStored = useSyncExternalStore(
+    subscribeToStorage,
+    () => localStorage.getItem(DISMISS_KEY) === "1",
+    () => true
+  );
+  const [dismissedNow, setDismissedNow] = useState(false);
 
-  useEffect(() => {
-    if (localStorage.getItem(DISMISS_KEY) !== "1") setVisible(true);
-  }, []);
-
-  if (!visible) return null;
+  if (dismissedStored || dismissedNow) return null;
 
   function dismiss() {
     localStorage.setItem(DISMISS_KEY, "1");
-    setVisible(false);
+    setDismissedNow(true);
   }
 
   const cta =
