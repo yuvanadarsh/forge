@@ -8,7 +8,6 @@ router flips pipeline_runs.status back to 'approved'.
 
 import asyncio
 import logging
-import os
 import re
 import uuid
 from datetime import datetime, timezone
@@ -25,103 +24,12 @@ from db.connection import get_session_factory
 from db.models import Agent, Conversation, Message, Notification, Pipeline, PipelineRun, Settings, Task
 from services.agent_executor import execute_agent
 from services.streaming import streaming_manager
-from services.tool_registry import _is_ignored, _load_gitignore
+from services.workspace_indexer import count_workspace_chunks, index_workspace
 
 logger = logging.getLogger(__name__)
 
 GATE_POLL_SECONDS = 2
 GATE_TIMEOUT_SECONDS = 3600
-
-# Existing-project auto-ingestion (run start): what gets scanned and how much
-# of it lands in the first agent's context.
-SCAN_MAX_FILES = 20              # files whose contents are excerpted
-SCAN_MAX_FILE_BYTES = 50 * 1024  # only files under 50KB are read
-SCAN_EXCERPT_CHARS = 1500        # per-file excerpt kept in the summary
-SCAN_MAX_LISTED = 200            # cap on the file list in the summary
-SCAN_SKIP_DIRS = {
-    "node_modules", "__pycache__", "venv", "dist", "build", "target", "coverage",
-}
-# Read these first — they explain a project faster than anything else.
-SCAN_PRIORITY_NAMES = (
-    "readme", "package.json", "pyproject.toml", "requirements.txt",
-    "docker-compose", "cargo.toml", "go.mod", "makefile",
-)
-
-
-def _scan_existing_project(workspace_path: str) -> tuple[str, int] | None:
-    """Summarize a non-empty workspace: file listing + key-file excerpts.
-
-    Returns (summary_markdown, files_found), or None when the workspace is
-    missing or empty (a fresh project — nothing to ingest). Sync file I/O:
-    call via asyncio.to_thread.
-    """
-    workspace = Path(workspace_path).expanduser()
-    if not workspace.is_dir():
-        return None
-    patterns = _load_gitignore(workspace)
-
-    files: list[tuple[str, int]] = []  # (rel_path, size)
-    for root, dirnames, filenames in os.walk(workspace):
-        rel_root = os.path.relpath(root, workspace)
-        dirnames[:] = [
-            d for d in dirnames
-            if d not in SCAN_SKIP_DIRS
-            and not d.startswith(".")
-            and not _is_ignored(os.path.normpath(os.path.join(rel_root, d)), patterns)
-        ]
-        for filename in filenames:
-            if filename.startswith("."):
-                continue
-            rel_path = os.path.normpath(os.path.join(rel_root, filename))
-            if _is_ignored(rel_path, patterns):
-                continue
-            try:
-                size = (Path(root) / filename).stat().st_size
-            except OSError:
-                continue
-            files.append((rel_path, size))
-    if not files:
-        return None
-
-    def read_order(entry: tuple[str, int]) -> tuple[int, int, str]:
-        rel, _ = entry
-        name = os.path.basename(rel).lower()
-        priority = next(
-            (i for i, prefix in enumerate(SCAN_PRIORITY_NAMES) if name.startswith(prefix)),
-            len(SCAN_PRIORITY_NAMES),
-        )
-        return (priority, rel.count(os.sep), rel)
-
-    reviewed: list[tuple[str, str]] = []
-    for rel, size in sorted(files, key=read_order):
-        if len(reviewed) >= SCAN_MAX_FILES:
-            break
-        if size > SCAN_MAX_FILE_BYTES:
-            continue
-        try:
-            text = (workspace / rel).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue  # binary or unreadable — skip
-        excerpt = text[:SCAN_EXCERPT_CHARS]
-        if len(text) > SCAN_EXCERPT_CHARS:
-            excerpt += "\n… (truncated)"
-        reviewed.append((rel, excerpt))
-
-    listed = sorted(rel for rel, _ in files)[:SCAN_MAX_LISTED]
-    lines = [
-        "# Existing project scan",
-        f"Existing project detected — {len(files)} files found in the workspace. "
-        "Review this before making changes; use your tools to read anything else you need.",
-        "",
-        "## Files found",
-        *[f"- {rel}" for rel in listed],
-    ]
-    if len(files) > SCAN_MAX_LISTED:
-        lines.append(f"- …and {len(files) - SCAN_MAX_LISTED} more")
-    lines += ["", "## Key files reviewed"]
-    for rel, excerpt in reviewed:
-        lines += [f"### {rel}", "```", excerpt, "```", ""]
-    return "\n".join(lines), len(files)
 
 # Checkpoints must outlive individual ainvoke calls so interrupt/resume works;
 # MemorySaver is process-local, which matches the single-backend deployment.
@@ -438,28 +346,54 @@ async def run_pipeline(pipeline_run_id: uuid.UUID, db: AsyncSession) -> None:
     await db.commit()
     await streaming_manager.send_status(str(run.id), "running")
 
-    # Existing-project auto-ingestion: when the workspace already has files,
-    # scan it so the FIRST agent starts out knowing the codebase instead of
-    # discovering it one tool call at a time. A scan failure never blocks
-    # the run — agents can still explore with their tools.
-    scan_context: list[dict] = []
+    session_factory = get_session_factory()
+
+    # Existing-workspace indexing: when the workspace already has files,
+    # index it for semantic search (the search_codebase tool) before the
+    # first agent runs. Chunks are keyed by workspace_path, so a folder
+    # indexed by an earlier pipeline only re-indexes files that changed.
+    # An indexing failure never blocks the run — agents still have their
+    # file tools; they just lose semantic search.
     try:
-        scan = await asyncio.to_thread(_scan_existing_project, pipeline.workspace_path)
-    except Exception:
-        logger.exception("Workspace scan failed for %s — running without it", pipeline.workspace_path)
-        scan = None
-    if scan is not None:
-        summary, file_count = scan
-        scan_context = [{"role": "user", "content": summary}]
-        db.add(
-            Message(
-                conversation_id=conversation.id,
-                role="system",
-                content=f"📁 Forge scanned your project — {file_count} files indexed",
+        workspace = Path(pipeline.workspace_path).expanduser()
+        workspace_has_files = workspace.is_dir() and any(workspace.iterdir())
+    except OSError:
+        workspace_has_files = False
+    if workspace_has_files:
+
+        async def _report_index_progress(files_done: int, total_files: int) -> None:
+            await streaming_manager.send_status(
+                str(run.id), f"indexing:{files_done}/{total_files}"
             )
-        )
-        await db.commit()
-        await streaming_manager.send_status(str(run.id), f"scanned:{file_count}")
+
+        try:
+            # Fresh session: indexing a big repo can take a while and must
+            # not pin this function's outer connection.
+            async with session_factory() as index_db:
+                new_chunks = await index_workspace(
+                    pipeline.workspace_path,
+                    index_db,
+                    on_progress=_report_index_progress,
+                    pipeline_run_id=run.id,
+                )
+                total_chunks = await count_workspace_chunks(pipeline.workspace_path, index_db)
+        except Exception:
+            logger.exception(
+                "Workspace indexing failed for %s — running without semantic search",
+                pipeline.workspace_path,
+            )
+        else:
+            if total_chunks:
+                note = (
+                    f"📚 Forge indexed {new_chunks} code chunks from your workspace "
+                    "for semantic search"
+                    if new_chunks
+                    else f"📚 Workspace index is up to date — {total_chunks} code "
+                    "chunks available for semantic search"
+                )
+                db.add(Message(conversation_id=conversation.id, role="system", content=note))
+                await db.commit()
+                await streaming_manager.send_status(str(run.id), f"indexed:{total_chunks}")
 
     settings = (await db.execute(select(Settings))).scalar_one_or_none()
     global_strict_mode = settings.strict_mode if settings is not None else False
@@ -470,14 +404,13 @@ async def run_pipeline(pipeline_run_id: uuid.UUID, db: AsyncSession) -> None:
     graph = _build_graph(pipeline, run, conversation.id, gate_indices)
     config = {"configurable": {"thread_id": run.langgraph_thread_id}}
     initial_state: PipelineState = {
-        "messages": scan_context,
+        "messages": [],
         "current_agent_index": 0,
         "workspace_path": pipeline.workspace_path,
         "approval_status": "pending",
         "outputs": {},
     }
 
-    session_factory = get_session_factory()
     try:
         await graph.ainvoke(initial_state, config)
         # A non-empty `next` means interrupt() paused the graph at the gate.

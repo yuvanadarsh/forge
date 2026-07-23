@@ -101,10 +101,21 @@ TOOLS = [
     },
     {
         "name": "search_codebase",
-        "description": "Case-insensitive text search across all workspace files. Returns file, line number, and matching line.",
+        "description": (
+            "Semantic search over the workspace's indexed code. Describe what "
+            "you're looking for in natural language and get the most relevant "
+            "code chunks (with file and line ranges) — use this to find code "
+            "instead of reading entire files. The index is a snapshot from "
+            "run start: files written during this run are not in it."
+        ),
         "input_schema": {
             "type": "object",
-            "properties": {"query": {"type": "string", "description": "Text to search for"}},
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What you're looking for, e.g. 'where database connections are configured'",
+                }
+            },
             "required": ["query"],
         },
     },
@@ -530,7 +541,15 @@ async def _execute_tool(
                 args["query"], workspace_path,
                 db=db, agent_id=agent.id, pipeline_run_id=pipeline_run_id,
             )
-            return json.dumps(matches) if matches else "No matches found."
+            return (
+                json.dumps(matches)
+                if matches
+                else (
+                    "No matches in the codebase index. The index is built at "
+                    "run start — files written during this run are not in it; "
+                    "use read_file for those."
+                )
+            )
         if name == "run_command":
             output.commands_run.append(args["command"])
             approved = False

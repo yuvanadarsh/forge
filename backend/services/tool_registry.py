@@ -14,14 +14,16 @@ import time
 import uuid
 from pathlib import Path
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Agent, CommandLog, FileAccessLog
+from db.models import Agent, AgentMemory, CommandLog, FileAccessLog
+from services import memory_service
 
 COMMAND_TIMEOUT_SECONDS = 60
 MAX_COMMAND_OUTPUT_CHARS = 50_000   # keep model context and command_log rows bounded
 MAX_READ_BYTES = 200_000
-MAX_SEARCH_MATCHES = 200
+SEARCH_TOP_K = 5                    # codebase chunks returned per semantic search
 
 
 class ToolError(Exception):
@@ -297,6 +299,16 @@ async def create_agent(
     }
 
 
+def normalize_workspace_path(workspace_path: str) -> str:
+    """Canonical string key for a workspace (expanduser + resolve).
+
+    Codebase chunks in agent_memory are stored and searched by this key, so
+    the writer (workspace_indexer) and reader (search_codebase) must agree
+    on it exactly.
+    """
+    return str(Path(workspace_path).expanduser().resolve())
+
+
 def _load_gitignore(workspace: Path) -> list[str]:
     gitignore = workspace / ".gitignore"
     if not gitignore.is_file():
@@ -327,43 +339,36 @@ async def search_codebase(
     agent_id: uuid.UUID | None = None,
     pipeline_run_id: uuid.UUID | None = None,
 ) -> list[dict]:
-    """Case-insensitive substring search across workspace files."""
-    workspace = Path(workspace_path).expanduser().resolve()
-    if not workspace.is_dir():
-        raise ToolError(f"Workspace does not exist: {workspace_path}")
+    """Semantic (vector) search over the workspace's indexed codebase chunks.
+
+    Scoped by workspace_path, not pipeline — an index built by an earlier
+    pipeline on the same folder serves this search too. The index is built
+    at run start (workspace_indexer), so files written during the current
+    run are not searchable until the next one. Fresh, never-indexed
+    workspaces simply return no matches.
+    """
     if not query.strip():
         raise ToolError("Search query is empty")
+    if db is None:
+        raise ToolError("search_codebase needs a database session")
+    query_embedding = await memory_service.embed_async(query)
+    if query_embedding is None:
+        raise ToolError("Embedding model unavailable — semantic search cannot run right now")
 
-    patterns = _load_gitignore(workspace)
-    needle = query.lower()
-    matches: list[dict] = []
-
-    for root, dirnames, filenames in os.walk(workspace):
-        rel_root = os.path.relpath(root, workspace)
-        dirnames[:] = [
-            d for d in dirnames
-            if d != ".git" and not _is_ignored(os.path.normpath(os.path.join(rel_root, d)), patterns)
-        ]
-        for filename in filenames:
-            rel_path = os.path.normpath(os.path.join(rel_root, filename))
-            if _is_ignored(rel_path, patterns):
-                continue
-            file_path = Path(root) / filename
-            try:
-                if file_path.stat().st_size > MAX_READ_BYTES:
-                    continue
-                text = file_path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue  # unreadable/binary files are not searchable
-            for line_no, line in enumerate(text.splitlines(), start=1):
-                if needle in line.lower():
-                    matches.append({"file": rel_path, "line": line_no, "content": line.strip()[:300]})
-                    if len(matches) >= MAX_SEARCH_MATCHES:
-                        break
-            if len(matches) >= MAX_SEARCH_MATCHES:
-                break
-        if len(matches) >= MAX_SEARCH_MATCHES:
-            break
+    # The score must be selected as a column — it is not an attribute that
+    # exists on the AgentMemory row itself.
+    distance = AgentMemory.embedding.cosine_distance(query_embedding)
+    results = await db.execute(
+        select(AgentMemory, distance.label("distance"))
+        .where(AgentMemory.memory_type == "codebase_chunk")
+        .where(AgentMemory.workspace_path == normalize_workspace_path(workspace_path))
+        .order_by(distance)
+        .limit(SEARCH_TOP_K)
+    )
+    matches = [
+        {"content": row.AgentMemory.content, "distance": float(row.distance)}
+        for row in results
+    ]
 
     await _log_file_access(
         db, path=f"search:{query}", operation="search", num_bytes=None,
