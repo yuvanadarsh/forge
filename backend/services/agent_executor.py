@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 
 MAX_OUTPUT_TOKENS = 16_384
 MAX_TOOL_ITERATIONS = 25          # hard stop against runaway tool loops
-MAX_NO_TOOL_NUDGES = 2            # corrective re-prompts before accepting a tool-free turn
+MAX_NO_TOOL_NUDGES = 3            # corrective re-prompts before accepting a tool-free turn
 CONTEXT_VERBATIM_TAIL = 10        # prior-context messages kept verbatim when condensing
 APPROVAL_POLL_SECONDS = 2
 APPROVAL_TIMEOUT_SECONDS = 3600
@@ -364,6 +364,12 @@ def _build_system_prompt(
     if memories:
         memory_lines = "\n".join(f"- {m.content[:500]}" for m in memories)
         parts.append(f"## Relevant context from your past work\n{memory_lines}")
+    parts.append(
+        "EXECUTION RULE: For any task that requires creating files, "
+        "call write_file as your FIRST or SECOND action. "
+        "You may run ONE exploration command if needed, but then you MUST "
+        "call write_file immediately after. Never explore without producing output."
+    )
     return "\n\n".join(parts)
 
 
@@ -913,6 +919,7 @@ async def execute_agent(
             "Tools available to %s: %s", agent.name, [t["name"] for t in tools_for_agent]
         )
         any_tool_used = False
+        productive_tool_used = False  # write_file or meaningful run_command
         nudge_count = 0
         for _ in range(MAX_TOOL_ITERATIONS):
             # Cost guardrails: persisted spend plus this agent's in-flight
@@ -952,11 +959,13 @@ async def execute_agent(
                 # it. If no tool has run yet this whole agent turn, treat
                 # the announcement as unfinished and nudge the model to
                 # follow through, bounded so a task that truly needs no
-                # tools still terminates.
-                if not any_tool_used and nudge_count < MAX_NO_TOOL_NUDGES:
+                # tools still terminates. Exploration-only turns (ls, find,
+                # cat…) count the same as no tool at all — agents were
+                # exploring instead of writing and dodging the nudge.
+                if not productive_tool_used and nudge_count < MAX_NO_TOOL_NUDGES:
                     nudge_count += 1
                     logger.info(
-                        "Agent %s stopped (%s) without using a tool — nudging (%d/%d)",
+                        "Agent %s stopped (%s) without a productive tool call — nudging (%d/%d)",
                         agent.name, response.stop_reason, nudge_count, MAX_NO_TOOL_NUDGES,
                     )
                     messages.append({"role": "assistant", "content": response.content})
@@ -964,11 +973,9 @@ async def execute_agent(
                         {
                             "role": "user",
                             "content": (
-                                "You described an action but haven't called a tool yet. "
-                                "If the task requires writing files or running commands, "
-                                "call the appropriate tool now — don't just describe it. "
-                                "If you have genuinely finished with no tool use needed, "
-                                "say so explicitly."
+                                "You explored the workspace but haven't written any files yet. "
+                                "You MUST call write_file now to create your deliverable. "
+                                "Do not explore further — write the file immediately."
                             ),
                         }
                     )
@@ -982,6 +989,16 @@ async def execute_agent(
             for block in response.content:
                 if block.type != "tool_use":
                     continue
+                tool_name, tool_input = block.name, dict(block.input)
+                productive_tools = {"write_file", "create_file"}
+                if tool_name in productive_tools:
+                    productive_tool_used = True
+                elif tool_name == "run_command":
+                    # Only count as productive if it's not just exploration
+                    exploration_commands = ("ls", "find", "cat", "head", "tail", "wc", "pwd", "echo")
+                    cmd = tool_input.get("command", "")
+                    if not any(cmd.strip().startswith(x) for x in exploration_commands):
+                        productive_tool_used = True
                 logger.info("TOOL CALL START: %s args=%s", block.name, dict(block.input))
                 await streaming_manager.send_tool_call(
                     run_id, block.name, dict(block.input), agent_id=str(agent.id)
