@@ -23,6 +23,7 @@ from db.models import (
     ApiKey,
     Conversation,
     Message,
+    MessageImage,
     Notification,
     Pipeline,
     PipelineRun,
@@ -549,6 +550,7 @@ def _chat_turns(
     *,
     pipeline_followup: bool,
     speaker_names: dict[uuid.UUID, str],
+    has_images: frozenset[uuid.UUID] = frozenset(),
 ) -> list[dict]:
     """Chat turns from persisted messages: user/assistant only — tool_call
     and gate rows are UI artifacts, not conversation content.
@@ -564,7 +566,7 @@ def _chat_turns(
         if m.role not in ("user", "assistant"):
             continue
         content = m.content if m.content.strip() else ""
-        if m.image_data:
+        if m.image_data or m.id in has_images:
             # Text stand-in; the actual image block is attached only to the
             # latest user turn (chat_reply) so history stays lightweight.
             content = f"[image attached] {content}".rstrip()
@@ -647,6 +649,21 @@ async def chat_reply(
                 speaker_names = {a.id: a.name for a in agent_rows.scalars().all()}
 
         latest_user_msg = next((m for m in reversed(history) if m.role == "user"), None)
+        # message_images for every user turn in history (multi-image, migration
+        # 009) — used both for the "[image attached]" text stand-in on older
+        # turns and the real image blocks attached to the latest turn below.
+        user_msg_ids = [m.id for m in history if m.role == "user"]
+        images_by_message: dict[uuid.UUID, list[MessageImage]] = {}
+        if user_msg_ids:
+            image_rows = await db.execute(
+                select(MessageImage)
+                .where(MessageImage.message_id.in_(user_msg_ids))
+                .order_by(MessageImage.sort_order)
+            )
+            for image in image_rows.scalars().all():
+                images_by_message.setdefault(image.message_id, []).append(image)
+        has_images = frozenset(images_by_message.keys())
+        latest_images = images_by_message.get(latest_user_msg.id, []) if latest_user_msg else []
         memories = await memory_service.search_memories(
             db,
             agent.id,
@@ -668,7 +685,10 @@ async def chat_reply(
     system_prompt = "\n\n".join(parts)
 
     turns = _chat_turns(
-        history, pipeline_followup=pipeline_followup, speaker_names=speaker_names
+        history,
+        pipeline_followup=pipeline_followup,
+        speaker_names=speaker_names,
+        has_images=has_images,
     )
 
     # Anthropic requires user-first, alternating roles: merge consecutive
@@ -685,28 +705,37 @@ async def chat_reply(
     if not merged:
         return None
 
-    # The just-sent user message may carry an image: send it as a real image
-    # content block ahead of the text (Anthropic multi-part content).
+    # The just-sent user message may carry images: send them as real image
+    # content blocks ahead of the text (Anthropic multi-part content — image
+    # blocks first, text last). Prefers message_images (up to 4); falls back
+    # to the legacy single image_data column for pre-009 rows.
+    image_blocks = [
+        {
+            "type": "image",
+            "source": {"type": "base64", "media_type": img.media_type, "data": img.image_data},
+        }
+        for img in latest_images
+    ]
     if (
-        latest_user_msg is not None
+        not image_blocks
+        and latest_user_msg is not None
         and latest_user_msg.image_data
         and latest_user_msg.image_media_type
-        and merged[-1]["role"] == "user"
-        and isinstance(merged[-1]["content"], str)
     ):
+        image_blocks = [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": latest_user_msg.image_media_type,
+                    "data": latest_user_msg.image_data,
+                },
+            }
+        ]
+    if image_blocks and merged[-1]["role"] == "user" and isinstance(merged[-1]["content"], str):
         merged[-1] = {
             "role": "user",
-            "content": [
-                {
-                    "type": "image",
-                    "source": {
-                        "type": "base64",
-                        "media_type": latest_user_msg.image_media_type,
-                        "data": latest_user_msg.image_data,
-                    },
-                },
-                {"type": "text", "text": merged[-1]["content"]},
-            ],
+            "content": [*image_blocks, {"type": "text", "text": merged[-1]["content"]}],
         }
 
     # Eternal agents (Atlas) get create_agent in chat — their whole job is

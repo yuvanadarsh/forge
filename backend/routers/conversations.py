@@ -11,7 +11,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.connection import get_db
-from db.models import Agent, Conversation, Message, Pipeline
+from db.models import Agent, Conversation, Message, MessageImage, Pipeline
 from services.agent_executor import ExecutionError, chat_reply
 
 logger = logging.getLogger(__name__)
@@ -49,13 +49,30 @@ ALLOWED_IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp
 # Base64 chars, ~7.5MB decoded — above Anthropic's 5MB/image API limit, so the
 # provider stays the effective ceiling and this only blocks absurd payloads.
 MAX_IMAGE_B64_CHARS = 10_000_000
+MAX_IMAGES_PER_MESSAGE = 4
+
+
+class ImageIn(BaseModel):
+    data: str  # raw base64, no data: prefix
+    media_type: str
 
 
 class MessageCreate(BaseModel):
     # Empty content is allowed when an image is attached (image-only message).
     content: str = ""
-    image_data: str | None = None  # raw base64, no data: prefix
+    images: list[ImageIn] = Field(default_factory=list)
+    # Legacy single-image fields — still accepted for older clients; written
+    # into message_images like everything else (see add_user_message).
+    image_data: str | None = None
     image_media_type: str | None = None
+
+
+class MessageImageOut(BaseModel):
+    model_config = {"from_attributes": True}
+
+    id: uuid.UUID
+    image_data: str
+    media_type: str
 
 
 class MessageOut(BaseModel):
@@ -68,8 +85,11 @@ class MessageOut(BaseModel):
     content: str
     sender_agent_id: uuid.UUID | None
     gate_status: str | None
+    # Legacy single-image columns — populated only on pre-009 rows.
     image_data: str | None
     image_media_type: str | None
+    # New multi-image rows (migration 009), ordered by sort_order.
+    images: list[MessageImageOut] = Field(default_factory=list)
     input_tokens: int | None
     output_tokens: int | None
     cost_usd: Decimal | None
@@ -96,6 +116,55 @@ async def _get_conversation_or_404(conversation_id: uuid.UUID, db: AsyncSession)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return conversation
+
+
+async def _images_by_message(
+    message_ids: list[uuid.UUID], db: AsyncSession
+) -> dict[uuid.UUID, list[MessageImage]]:
+    if not message_ids:
+        return {}
+    rows = await db.execute(
+        select(MessageImage)
+        .where(MessageImage.message_id.in_(message_ids))
+        .order_by(MessageImage.sort_order)
+    )
+    by_message: dict[uuid.UUID, list[MessageImage]] = {}
+    for image in rows.scalars().all():
+        by_message.setdefault(image.message_id, []).append(image)
+    return by_message
+
+
+def _message_out(message: Message, images: list[MessageImage]) -> MessageOut:
+    """Build the API shape for one message. Defensive against rows from a
+    pre-008 install where the legacy image columns may not have loaded
+    cleanly — image_data/image_media_type just fall back to None rather than
+    failing the whole page."""
+    try:
+        legacy_data = message.image_data
+        legacy_media_type = message.image_media_type
+    except Exception:
+        logger.exception("Could not read legacy image columns for message %s", message.id)
+        legacy_data = None
+        legacy_media_type = None
+    return MessageOut(
+        id=message.id,
+        conversation_id=message.conversation_id,
+        agent_id=message.agent_id,
+        role=message.role,
+        content=message.content,
+        sender_agent_id=message.sender_agent_id,
+        gate_status=message.gate_status,
+        image_data=legacy_data,
+        image_media_type=legacy_media_type,
+        images=[
+            MessageImageOut(id=i.id, image_data=i.image_data, media_type=i.media_type)
+            for i in images
+        ],
+        input_tokens=message.input_tokens,
+        output_tokens=message.output_tokens,
+        cost_usd=message.cost_usd,
+        created_at=message.created_at,
+    )
 
 
 async def _pipeline_reply_agent(
@@ -218,8 +287,36 @@ async def list_messages(
         .offset((page - 1) * PAGE_SIZE)
         .limit(PAGE_SIZE)
     )
+    page_messages = list(rows.scalars().all())
+    images_by_message = await _images_by_message([m.id for m in page_messages], db)
+
+    items: list[MessageOut] = []
+    for m in page_messages:
+        try:
+            items.append(_message_out(m, images_by_message.get(m.id, [])))
+        except Exception:
+            logger.exception("Failed to serialize message %s — retrying with no image data", m.id)
+            items.append(
+                MessageOut(
+                    id=m.id,
+                    conversation_id=m.conversation_id,
+                    agent_id=m.agent_id,
+                    role=m.role,
+                    content=m.content,
+                    sender_agent_id=m.sender_agent_id,
+                    gate_status=m.gate_status,
+                    image_data=None,
+                    image_media_type=None,
+                    images=[],
+                    input_tokens=m.input_tokens,
+                    output_tokens=m.output_tokens,
+                    cost_usd=m.cost_usd,
+                    created_at=m.created_at,
+                )
+            )
+
     return MessagePage(
-        items=[MessageOut.model_validate(m) for m in rows.scalars().all()],
+        items=items,
         page=page,
         page_size=PAGE_SIZE,
         total=int(total),
@@ -237,25 +334,51 @@ async def add_user_message(
     last agent who spoke. While a run is active their traffic flows
     through the orchestrator + WebSocket instead."""
     conversation = await _get_conversation_or_404(conversation_id, db)
-    if not body.content.strip() and body.image_data is None:
-        raise HTTPException(status_code=422, detail="Message needs text or an image")
+
+    # Legacy single-image field folds into the images list so both old and
+    # new clients land in the same message_images write path.
+    images = list(body.images)
     if body.image_data is not None:
-        if body.image_media_type not in ALLOWED_IMAGE_MEDIA_TYPES:
+        images = [ImageIn(data=body.image_data, media_type=body.image_media_type or "")] + images
+
+    if not body.content.strip() and not images:
+        raise HTTPException(status_code=422, detail="Message needs text or an image")
+    if len(images) > MAX_IMAGES_PER_MESSAGE:
+        raise HTTPException(
+            status_code=422, detail=f"Too many images (max {MAX_IMAGES_PER_MESSAGE} per message)"
+        )
+    for image in images:
+        if image.media_type not in ALLOWED_IMAGE_MEDIA_TYPES:
             raise HTTPException(
                 status_code=422,
                 detail="Unsupported image type — use PNG, JPEG, GIF, or WebP",
             )
-        if len(body.image_data) > MAX_IMAGE_B64_CHARS:
-            raise HTTPException(status_code=413, detail="Image too large (max ~5MB)")
-    message = Message(
-        conversation_id=conversation_id,
-        role="user",
-        content=body.content,
-        image_data=body.image_data,
-        image_media_type=body.image_media_type,
-    )
+        if len(image.data) > MAX_IMAGE_B64_CHARS:
+            raise HTTPException(status_code=413, detail="Image too large (max ~5MB per image)")
+
+    message = Message(conversation_id=conversation_id, role="user", content=body.content)
     db.add(message)
-    conversation.last_message = (body.content or "📷 Image")[:300]
+    await db.flush()  # assign message.id for the MessageImage rows below
+
+    message_images = [
+        MessageImage(
+            message_id=message.id,
+            image_data=image.data,
+            media_type=image.media_type,
+            sort_order=idx,
+        )
+        for idx, image in enumerate(images)
+    ]
+    for mi in message_images:
+        db.add(mi)
+
+    if not images:
+        preview = body.content
+    elif len(images) == 1:
+        preview = body.content or "📷 Image"
+    else:
+        preview = body.content or f"📷 {len(images)} images"
+    conversation.last_message = preview[:300]
     conversation.last_active = datetime.now(timezone.utc)
     is_agent_conversation = conversation.agent_id is not None
     pipeline_agent_id: uuid.UUID | None = None
@@ -263,7 +386,7 @@ async def add_user_message(
         pipeline_agent_id = await _pipeline_reply_agent(conversation, body.content, db)
     await db.commit()
     await db.refresh(message)
-    user_out = MessageOut.model_validate(message)
+    user_out = _message_out(message, message_images)
 
     assistant_out: MessageOut | None = None
     error: str | None = None
@@ -271,7 +394,7 @@ async def add_user_message(
         try:
             reply = await chat_reply(conversation_id, agent_id=pipeline_agent_id)
             if reply is not None:
-                assistant_out = MessageOut.model_validate(reply)
+                assistant_out = _message_out(reply, [])
         except ExecutionError as exc:
             error = str(exc)
         except Exception as exc:  # the saved user message must survive reply failures

@@ -32,7 +32,7 @@ export default function PipelineExecutionPlan({ planMd, collapsed, onToggle }: P
         </div>
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {planMd ? (
-            <div className="text-xs leading-relaxed" style={{ color: "#a1a1aa" }}>
+            <div className="markdown-body text-xs leading-relaxed" style={{ color: "#a1a1aa" }}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 rehypePlugins={[rehypeHighlight]}
@@ -45,6 +45,11 @@ export default function PipelineExecutionPlan({ planMd, collapsed, onToggle }: P
                   ul: ({ children }) => <ul className="mb-2 space-y-0.5">{children}</ul>,
                   hr: () => (
                     <hr style={{ border: "none", borderTop: "1px solid #2a2a2a", margin: "0.75em 0" }} />
+                  ),
+                  table: ({ children }) => (
+                    <div className="overflow-x-auto rounded-lg border" style={{ borderColor: "#2a2a2a" }}>
+                      <table>{children}</table>
+                    </div>
                   ),
                   input: ({ checked }) => (
                     <input

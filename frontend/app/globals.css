@@ -88,12 +88,27 @@ body {
 .markdown-body ul, .markdown-body ol { padding-left: 1.25em; margin-bottom: 0.5em; }
 .markdown-body li { margin-bottom: 0.25em; }
 .markdown-body code:not(pre code) {
-  background: rgba(255,255,255,0.08);
+  background: #1a1a1a;
+  color: #f59e0b;
   padding: 0.1em 0.4em;
   border-radius: 4px;
   font-size: 0.85em;
   font-family: var(--font-mono, monospace);
 }
+.markdown-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+  margin: 0.5em 0;
+}
+.markdown-body th, .markdown-body td {
+  border: 1px solid #2a2a2a;
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+.markdown-body thead { background: #1a1a1a; }
+.markdown-body tbody tr:nth-child(odd) { background: #111111; }
+.markdown-body tbody tr:nth-child(even) { background: #0d0d0d; }
 .markdown-body pre {
   margin: 0.5em 0;
   border-radius: 8px;

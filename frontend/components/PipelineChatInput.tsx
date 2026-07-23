@@ -3,10 +3,16 @@
 import { useRef, useState, useEffect } from "react";
 import {
   AttachImageButton,
-  ImagePreview,
+  imageFilesFromDrop,
+  ImagePreviewRow,
+  fileToChatImage,
+  MAX_IMAGES_PER_MESSAGE,
   type ChatImage,
 } from "@/components/chat/ImageAttachment";
 import type { BackendAgent } from "@/types";
+
+const MAX_TEXTAREA_LINES = 6;
+const LINE_HEIGHT_PX = 20;
 
 interface Props {
   value: string;
@@ -15,9 +21,9 @@ interface Props {
   participants?: BackendAgent[];
   disabled?: boolean;
   placeholder?: string;
-  /** Staged image attachment; omit to hide the attach button. */
-  image?: ChatImage | null;
-  onImageChange?: (image: ChatImage | null) => void;
+  /** Staged image attachments (up to 4); omit to hide the attach button. */
+  images?: ChatImage[];
+  onImagesChange?: (images: ChatImage[]) => void;
   onImageError?: (message: string) => void;
 }
 
@@ -28,13 +34,15 @@ export default function PipelineChatInput({
   participants = [],
   disabled = false,
   placeholder = "Message the pipeline... (type @ to mention an agent)",
-  image = null,
-  onImageChange,
+  images = [],
+  onImagesChange,
   onImageError,
 }: Props) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
+  const [dragActive, setDragActive] = useState(false);
+  const [focused, setFocused] = useState(false);
 
   // Detect @mention as user types
   useEffect(() => {
@@ -51,6 +59,16 @@ export default function PipelineChatInput({
     }
     setMentionQuery(afterAt.toLowerCase());
     setMentionIndex(0);
+  }, [value]);
+
+  // Auto-resize up to MAX_TEXTAREA_LINES, then scroll internally.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const maxHeight = MAX_TEXTAREA_LINES * LINE_HEIGHT_PX;
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+    el.style.overflowY = el.scrollHeight > maxHeight ? "auto" : "hidden";
   }, [value]);
 
   const filtered = mentionQuery !== null
@@ -94,8 +112,39 @@ export default function PipelineChatInput({
     }
   }
 
+  const remainingSlots = MAX_IMAGES_PER_MESSAGE - images.length;
+
+  async function addFiles(files: File[]) {
+    if (!onImagesChange || files.length === 0) return;
+    const accepted = files.slice(0, Math.max(0, remainingSlots));
+    try {
+      const added = await Promise.all(accepted.map(fileToChatImage));
+      onImagesChange([...images, ...added]);
+    } catch (err) {
+      onImageError?.(err instanceof Error ? err.message : "Could not attach image");
+    }
+  }
+
   return (
-    <div className="px-6 py-4 border-t shrink-0 relative" style={{ borderColor: "#1f1f1f" }}>
+    <div
+      className="px-6 py-4 border-t shrink-0 relative"
+      style={{
+        borderColor: dragActive ? "#f59e0b" : "#1f1f1f",
+        borderStyle: dragActive ? "dashed" : "solid",
+      }}
+      onDragOver={(e) => {
+        if (!onImagesChange || disabled) return;
+        e.preventDefault();
+        setDragActive(true);
+      }}
+      onDragLeave={() => setDragActive(false)}
+      onDrop={(e) => {
+        if (!onImagesChange || disabled) return;
+        e.preventDefault();
+        setDragActive(false);
+        void addFiles(imageFilesFromDrop(e));
+      }}
+    >
       {/* @mention picker */}
       {filtered.length > 0 && (
         <div
@@ -130,42 +179,51 @@ export default function PipelineChatInput({
         </div>
       )}
 
-      {image && onImageChange && (
-        <ImagePreview image={image} onRemove={() => onImageChange(null)} />
+      {onImagesChange && (
+        <ImagePreviewRow
+          images={images}
+          onRemove={(index) => onImagesChange(images.filter((_, i) => i !== index))}
+        />
       )}
       <div className="flex gap-3 items-end">
-        {onImageChange && (
+        {onImagesChange && (
           <AttachImageButton
-            onSelect={onImageChange}
+            onSelect={(added) => onImagesChange([...images, ...added])}
             onError={(message) => onImageError?.(message)}
             disabled={disabled}
+            remainingSlots={remainingSlots}
           />
         )}
         <textarea
           ref={ref}
           value={value}
-          rows={2}
+          rows={1}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           placeholder={placeholder}
           className="flex-1 px-4 py-3 rounded-xl text-sm outline-none border transition-colors duration-150 resize-none disabled:cursor-not-allowed"
-          style={{ background: "#111111", borderColor: "#1f1f1f", color: "#f5f5f5" }}
-          onFocus={(e) => (e.target.style.borderColor = "#f59e0b")}
-          onBlur={(e) => (e.target.style.borderColor = "#1f1f1f")}
+          style={{ background: "#111111", borderColor: focused ? "#f59e0b" : "#1f1f1f", color: "#f5f5f5", lineHeight: `${LINE_HEIGHT_PX}px` }}
         />
         <button
           onClick={onSend}
-          disabled={disabled || (!value.trim() && !image)}
+          disabled={disabled || (!value.trim() && images.length === 0)}
           className="px-4 py-3 rounded-xl text-sm font-semibold transition-colors duration-150 shrink-0 disabled:cursor-not-allowed"
           style={{
-            background: !disabled && (value.trim() || image) ? "#f59e0b" : "#1f1f1f",
-            color: !disabled && (value.trim() || image) ? "#0a0a0a" : "#3f3f46",
+            background: !disabled && (value.trim() || images.length > 0) ? "#f59e0b" : "#1f1f1f",
+            color: !disabled && (value.trim() || images.length > 0) ? "#0a0a0a" : "#3f3f46",
           }}
         >
           Send
         </button>
       </div>
+      {focused && (
+        <div className="text-[10px] px-1 pt-1.5" style={{ color: "#3f3f46" }}>
+          Enter to send · Shift+Enter for new line
+        </div>
+      )}
     </div>
   );
 }

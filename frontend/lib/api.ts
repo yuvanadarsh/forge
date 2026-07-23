@@ -173,12 +173,11 @@ export const listMessages = (conversationId: string, page = 1) =>
 export const sendMessage = (
   conversationId: string,
   content: string,
-  image?: { data: string; mediaType: string },
+  images?: { data: string; mediaType: string }[],
 ) =>
   post<SendMessageResult>(`/api/conversations/${conversationId}/messages`, {
     content,
-    image_data: image?.data,
-    image_media_type: image?.mediaType,
+    images: images?.map((i) => ({ data: i.data, media_type: i.mediaType })) ?? [],
   });
 export const deleteConversation = (conversationId: string) =>
   del(`/api/conversations/${conversationId}`);
