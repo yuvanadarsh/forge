@@ -492,7 +492,7 @@ export default function SettingsPage() {
       {/* Section 4: Embeddings */}
       <div className={card} style={cardSt}>
         <SectionHeader title="Embeddings" />
-        <EmbeddingsSection embeddingModel={settings?.embedding_model ?? null} showToast={setToast} />
+        <EmbeddingsSection showToast={setToast} />
       </div>
 
       {/* Section 5: Export Data */}

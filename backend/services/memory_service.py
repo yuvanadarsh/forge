@@ -1,15 +1,17 @@
-"""Agent memory: VoyageAI embeddings (voyage-3, 1024 dims) + pgvector similarity.
+"""Agent memory: local sentence-transformers embeddings + pgvector similarity.
 
-Degrades gracefully: without VOYAGE_API_KEY, memories are stored without
-embeddings and similarity search returns nothing — execution never blocks
-on the embedding provider.
+Embeddings run fully locally (all-MiniLM-L6-v2, 384 dims) — no API key and no
+network dependency after the first model download (~90MB). Degrades
+gracefully: if the model cannot load, memories are stored without embeddings
+and similarity search returns nothing — execution never blocks on embeddings.
 """
 
+import asyncio
 import logging
-import os
+import threading
 import uuid
 
-import voyageai
+from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -17,35 +19,49 @@ from db.models import AgentMemory
 
 logger = logging.getLogger(__name__)
 
-EMBEDDING_MODEL = "voyage-3"
-MAX_EMBED_CHARS = 20_000  # stay well inside voyage-3's context window
+EMBEDDING_MODEL = "all-MiniLM-L6-v2"
+EMBEDDING_DIMENSIONS = 384
+# Clamp pathological inputs before tokenization; the model itself truncates
+# to its 256-token sequence window regardless.
+MAX_EMBED_CHARS = 20_000
 
-_client: voyageai.AsyncClient | None = None
-
-
-def _get_client() -> voyageai.AsyncClient | None:
-    global _client
-    if _client is not None:
-        return _client
-    if not os.getenv("VOYAGE_API_KEY"):
-        return None
-    _client = voyageai.AsyncClient()
-    return _client
+_model: SentenceTransformer | None = None
+_model_lock = threading.Lock()
 
 
-async def embed_text(text: str, *, input_type: str) -> list[float] | None:
-    """Embed one string; input_type is 'document' (storing) or 'query' (searching)."""
-    client = _get_client()
-    if client is None:
-        logger.warning("VOYAGE_API_KEY not set — skipping embedding")
-        return None
+def get_model() -> SentenceTransformer:
+    """The shared embedding model, loaded lazily on first use."""
+    global _model
+    if _model is None:
+        with _model_lock:
+            if _model is None:
+                logger.info("Loading embedding model (first run may take 30s)...")
+                _model = SentenceTransformer(EMBEDDING_MODEL)
+    return _model
+
+
+def embed(text: str) -> list[float]:
+    """Embed one string locally. Sync and CPU-bound — call via embed_async
+    (or asyncio.to_thread) from async code so the event loop keeps serving
+    WebSocket streams while the model runs."""
+    return get_model().encode(text[:MAX_EMBED_CHARS]).tolist()
+
+
+def embed_batch(texts: list[str]) -> list[list[float]]:
+    """Embed many strings in one model call — much faster than per-string
+    for bulk work like workspace indexing. Sync and CPU-bound, same as embed."""
+    if not texts:
+        return []
+    vectors = get_model().encode([t[:MAX_EMBED_CHARS] for t in texts])
+    return [vector.tolist() for vector in vectors]
+
+
+async def embed_async(text: str) -> list[float] | None:
+    """Embed off the event loop; None on failure (memory is an enhancement,
+    not a dependency — log and continue)."""
     try:
-        result = await client.embed(
-            [text[:MAX_EMBED_CHARS]], model=EMBEDDING_MODEL, input_type=input_type
-        )
-        return result.embeddings[0]
+        return await asyncio.to_thread(embed, text)
     except Exception as exc:
-        # Memory is an enhancement, not a dependency — log and continue.
         logger.warning("Embedding failed (%s) — continuing without memory", exc)
         return None
 
@@ -61,7 +77,8 @@ async def save_memory(
     memory = AgentMemory(
         agent_id=agent_id,
         content=content,
-        embedding=await embed_text(content, input_type="document"),
+        embedding=await embed_async(content),
+        memory_type="agent",
         source_pipeline_run_id=pipeline_run_id,
         source_task_id=task_id,
     )
@@ -79,8 +96,13 @@ async def search_memories(
     top_k: int = 5,
     threshold: float = 0.3,
 ) -> list[AgentMemory]:
-    """Top-k memories by cosine similarity, keeping only similarity >= threshold."""
-    query_embedding = await embed_text(query, input_type="query")
+    """Top-k memories by cosine similarity, keeping only similarity >= threshold.
+
+    Codebase chunks (memory_type='codebase_chunk') are deliberately excluded:
+    they are reachable only through the explicit search_codebase tool, never
+    injected automatically — keeps per-call token cost predictable.
+    """
+    query_embedding = await embed_async(query)
     if query_embedding is None:
         return []
     # pgvector cosine_distance = 1 - cosine_similarity
@@ -90,6 +112,7 @@ async def search_memories(
         select(AgentMemory)
         .where(
             AgentMemory.agent_id == agent_id,
+            AgentMemory.memory_type != "codebase_chunk",
             AgentMemory.embedding.is_not(None),
             distance <= max_distance,
         )
