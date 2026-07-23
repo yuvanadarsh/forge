@@ -176,16 +176,27 @@ def _gate_every_boundary(execution_mode: str | None, global_strict_mode: bool) -
     return global_strict_mode
 
 
-def _gate_indices(plan_md: str, agent_count: int, gate_every_boundary: bool) -> set[int]:
+def _gate_indices(
+    plan_md: str, agent_count: int, gate_every_boundary: bool, execution_mode: str | None = None,
+) -> set[int]:
     """0-based agent indices where the pipeline must pause for approval
     before the NEXT agent starts.
 
-    Only two triggers, matching the execution-mode model: an explicit gate
-    in plan_md (always applies, any mode), or every-boundary gating being
+    Two triggers, matching the execution-mode model: an explicit gate in
+    plan_md (normally applies in any mode), or every-boundary gating being
     on (Strict Mode, or execution_mode 'supervised'/'strict'). Neither
     Terminal Execution mode nor a plain phase heading pauses inter-agent
     handoffs on its own.
+
+    'full_auto' is the one override that beats an explicit plan_md gate:
+    plans are frequently LLM-generated (the auto-planner), and an LLM will
+    naturally write a "## Approval Gate" checklist section as ordinary
+    planning content with no idea that heading text alone pauses the
+    pipeline. A pipeline explicitly configured to run fully autonomously
+    must never stall on prose it didn't know was load-bearing.
     """
+    if execution_mode == "full_auto":
+        return set()
     indices = _explicit_gate_indices(plan_md, agent_count)
     if gate_every_boundary:
         indices |= set(range(agent_count - 1))
@@ -453,7 +464,9 @@ async def run_pipeline(pipeline_run_id: uuid.UUID, db: AsyncSession) -> None:
     settings = (await db.execute(select(Settings))).scalar_one_or_none()
     global_strict_mode = settings.strict_mode if settings is not None else False
     gate_every_boundary = _gate_every_boundary(pipeline.execution_mode, global_strict_mode)
-    gate_indices = _gate_indices(pipeline.plan_md, len(pipeline.agent_sequence), gate_every_boundary)
+    gate_indices = _gate_indices(
+        pipeline.plan_md, len(pipeline.agent_sequence), gate_every_boundary, pipeline.execution_mode,
+    )
     graph = _build_graph(pipeline, run, conversation.id, gate_indices)
     config = {"configurable": {"thread_id": run.langgraph_thread_id}}
     initial_state: PipelineState = {
