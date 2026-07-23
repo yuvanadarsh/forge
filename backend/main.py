@@ -6,6 +6,7 @@ per-pipeline-run WebSocket stream at /ws/pipeline/{pipeline_run_id}.
 
 import logging
 import os
+import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -16,6 +17,19 @@ from sqlalchemy import text
 
 load_dotenv()
 
+# Uvicorn configures its OWN loggers ("uvicorn", "uvicorn.access", ...) — it
+# never touches the root logger. Every app module calls
+# logging.getLogger(__name__) but nothing ever configured a handler on the
+# root logger, so INFO/DEBUG records were silently dropped (below the
+# level Python's handler-less "last resort" fallback emits) and even
+# WARNING/ERROR only reached stderr by accident. This must run before the
+# app modules below are imported, since some log at import time.
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stdout,
+)
+
 from db.connection import dispose_engine, get_session_factory, init_engine  # noqa: E402
 from routers import (  # noqa: E402
     agents,
@@ -25,6 +39,7 @@ from routers import (  # noqa: E402
     pipelines,
     settings,
     tasks,
+    workspace,
 )
 from services.streaming import streaming_manager  # noqa: E402
 
@@ -94,6 +109,7 @@ app.include_router(conversations.router, prefix="/api")
 app.include_router(settings.router, prefix="/api")
 app.include_router(notifications.router, prefix="/api")
 app.include_router(analytics.router, prefix="/api")
+app.include_router(workspace.router, prefix="/api")
 
 
 @app.get("/health")

@@ -31,6 +31,7 @@ import type {
   TaskUpdatePayload,
   TokenUsageInterval,
   TokenUsageSeries,
+  WorkspaceBrowseResult,
 } from "@/types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -146,6 +147,11 @@ export const restorePipeline = (pipelineId: string) =>
   patch<BackendPipeline>(`/api/pipelines/${pipelineId}`, { status: "pending_approval" });
 export const stopPipeline = (pipelineId: string) =>
   patch<BackendPipeline>(`/api/pipelines/${pipelineId}/stop`, {});
+
+// ---------------------------------------------------------------- workspace
+
+export const browseWorkspace = (path?: string) =>
+  get<WorkspaceBrowseResult>(`/api/workspace/browse${query({ path })}`);
 
 // ---------------------------------------------------------------- tasks
 

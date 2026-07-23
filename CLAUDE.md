@@ -693,6 +693,8 @@ backend/
   routers/
     agents.py, pipelines.py, tasks.py
     conversations.py, settings.py, notifications.py
+    workspace.py                     — GET /workspace/browse, in-app folder
+                                       picker for CreatePipelineModal (Session 17)
   services/
     orchestrator.py, agent_executor.py, tool_registry.py
     memory_service.py, streaming.py, crypto.py
@@ -1248,6 +1250,54 @@ backend/
   boundary math (1-200/181-380/361-450 for 450 lines), unchanged-skip,
   changed-file replace, deleted-file prune, top-hit relevance for a
   natural-language query, and recall exclusion of codebase chunks
+
+### Session 17 (2026-07-23) — In-app workspace browser, logging visibility
+
+- CreatePipelineModal's "Existing folder" Browse used to open a native
+  `<input type="file" webkitdirectory>` picker, which can only return a
+  HOST path — structurally incapable of returning a container path, since
+  no browser API exposes the container's mount point. It had also
+  degraded into hardcoding `/Users/username/${folder}` as a placeholder.
+  New GET /api/workspace/browse (routers/workspace.py, a new router — the
+  existing ones map 1:1 to a resource domain and this doesn't fit
+  settings or pipelines) lists directories under settings.workspace_root
+  from inside the container, reusing tool_registry._resolve_safe for the
+  containment check (same symlink-resolved escape guard as agent file
+  tools) rather than a second implementation. New
+  components/WorkspaceBrowserModal.tsx nests above CreatePipelineModal
+  (same elevated z-index pattern ConfirmDialog uses for modal-over-modal)
+  and writes the selected container path back into the existing-folder
+  field
+- Root cause of app logs never reaching `docker logs`: nothing ever
+  called logging.basicConfig — uvicorn configures its own
+  "uvicorn"/"uvicorn.access" loggers independently and never touches the
+  root logger, so every service/router module's
+  logging.getLogger(__name__).info(...) calls had no handler to reach.
+  Fixed with one logging.basicConfig(stream=sys.stdout) call in main.py,
+  before any app module import (some log at import time).
+  PYTHONUNBUFFERED=1 added to the backend Dockerfile as defense-in-depth
+  (StreamHandler already flushes per record, so this wasn't the actual
+  cause, just cheap insurance)
+- Local testing hit two environment red herrings, neither caused by this
+  session's changes: (1) the Forge backend's published host port is 8001
+  (BACKEND_PORT in .env), not 8000 — something else on this machine owns
+  8000; curl-ing :8000 silently hit a different local project's API and
+  produced a confusing "route not found" that had nothing to do with the
+  new router. (2) The backend's anonymous `/app/.venv` Docker volume
+  (meant to keep the container's own empty .venv path from being shadowed
+  by a host bind-mount) had stale content from an earlier session baked
+  in, and WatchFiles' `--reload` churned on it nonstop until the volume
+  was removed and recreated fresh — a pre-existing environment quirk,
+  not fixed as part of this session (out of scope), noted here in case it
+  recurs
+- Verified live: triggering a real agent tool-call round-trip (a pipeline
+  chat follow-up) streamed services.memory_service ("Loading embedding
+  model..."), sentence_transformers, and httpx (the live Anthropic API
+  call) through `docker logs -f` in real time; browsing from
+  /root/forge-workspace into a real project and selecting it wrote
+  /root/forge-workspace/e2e-test-app into the pipeline form — confirmed
+  against an existing pipeline row whose workspace_path still had the old
+  bug's host path
 
 ## CLAUDE.md Rules
 
