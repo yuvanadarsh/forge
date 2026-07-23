@@ -110,6 +110,14 @@ async def _pick_planner(db, candidate_agents: list[Agent]) -> Agent | None:
 
 
 def _plan_prompt(pipeline: Pipeline, agents: list[Agent]) -> str:
+    if pipeline.execution_mode == "full_auto":
+        gate_instruction = (
+            "- Do NOT include any \"Approval Gate\" heading or human-checkpoint "
+            "section of any kind — this pipeline runs fully autonomously with no "
+            "pauses between phases, so a heading like that would be misleading"
+        )
+    else:
+        gate_instruction = "- An approval gate section between phases if multiple phases exist"
     return f"""You are planning the execution of a software pipeline.
 
 Pipeline: {pipeline.title}
@@ -121,7 +129,7 @@ Generate a detailed execution plan in markdown with:
 - Objective section
 - One phase per agent in the sequence
 - Specific tasks for each agent with checkboxes [ ]
-- An approval gate section between phases if multiple phases exist
+{gate_instruction}
 - Success criteria
 
 Format it as clean markdown. Be specific and actionable. Return only the
